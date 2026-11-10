@@ -29,7 +29,7 @@
 | **Git 지시** | 2026-11-11 최신 요청으로 에셋 수정 및 GitHub 업로드·Cloudflare 연결 허용. 이전 보류 지시 해제 |
 | Cloudflare | 계정 연결 정상. `sangsangbar.com` zone 활성 상태 확인 |
 | API Tunnel / DNS | 생성·설정 완료. 다른 노트북 커넥터 미실행으로 `inactive` |
-| 프론트 배포 | Pages 프로젝트·프론트 DNS·Git 연결 진행 중. 최신 기록에서 결과 확인 |
+| 프론트 배포 | Pages `cropgrow`, GitHub `main` 자동 배포 연결 및 프론트 CNAME 생성 완료 |
 
 이전 HTML/CSS/JS 데모와 전용 아이콘·미리보기·테스트 38개는 정리했다. 디자인 원본, Figma 작업 자료, 작물 PNG, 기획서는 보존했다.
 
@@ -73,8 +73,8 @@ flowchart LR
 | `backend/manage.cjs` | 초기화, 주간 퀴즈·특별 미션 import, 안전한 백업, 교사용 PIN 초기화 |
 | `server.cjs` | **프론트 로컬 확인용** 4174 포트 정적 서버. 학생 API 서버가 아님 |
 | `web/_headers` | 재배포 시 같은 이름의 수정 PNG를 재검증하도록 하는 캐시 헤더 |
-| `.github/workflows/frontend.yml` | 향후 Git 연결 시 검사·빌드 아티팩트. 현재는 원격 저장소에 올리지 않음 |
-| `scripts/build-web.sh` | 향후 Cloudflare Git 빌드용. Flutter 준비 후 `build/web` 생성 |
+| `.github/workflows/frontend.yml` | GitHub push/PR 검사·빌드 아티팩트 |
+| `scripts/build-web.sh` | Cloudflare Git 빌드용. Flutter 준비 후 `build/web` 생성 |
 
 ## 화면 및 게임 규칙
 
@@ -178,9 +178,9 @@ WAL 모드와 FK를 켜고 prepared statement를 사용한다. 세션과 오래�
 | API DNS | proxied CNAME → `f376c53c-e868-4d64-b83e-2dc8e1098fe5.cfargotunnel.com` |
 | 마지막 확인 상태 | `inactive`: 다른 노트북의 cloudflared를 아직 실행하지 않음 |
 
-현재 API URL은 실제 서비스를 제공하는 healthy 상태가 아니다. DNS 생성 완료와 백엔드 가동 완료를 구분한다. 프론트 `cropgrow.sangsangbar.com`용 DNS와 Pages 프로젝트는 아직 만들지 않았다. 앞서 제시했던 Direct Upload + GitHub Actions 수동 배포안은, GitHub 직접 연결 요청을 받아 **향후 Pages Git integration**으로 연결하는 방향으로 정리했다. 현재 Git 금지 지시 때문에 연결·배포는 보류다.
+현재 API URL은 실제 서비스를 제공하는 healthy 상태가 아니다. DNS 생성 완료와 백엔드 가동 완료를 구분한다. 프론트는 Pages Git integration으로 연결했다. Pages 프로젝트 `cropgrow`, 기본 주소 `cropgrow.pages.dev`, 사용자 주소 `cropgrow.sangsangbar.com`이다. 프론트 CNAME ID는 `282167b9b3efca6770d85c034ce99d0b`, 도메인 연결 ID는 `a13b78f8-89eb-42a2-9a02-fca0a0c3c6f5`다.
 
-다시 Git/배포를 허용받은 뒤에는 저장소 상태부터 재조회하고, 이미 만들어진 프로젝트가 있는지 확인한 다음 중복 생성하지 않는다. 향후 Git 빌드 명령은 `bash scripts/build-web.sh`, 출력 폴더는 `build/web`, API 환경값은 실제 API 도메인이다. Pages Git integration은 Cloudflare GitHub 앱의 해당 저장소 접근 권한이 필요할 수 있다. `.github` 워크플로는 검사/아티팩트용이며 Cloudflare 토큰을 요구하는 별도 수동 배포 단계를 제거했다.
+Git 빌드 명령은 `bash scripts/build-web.sh`, 출력 폴더는 `build/web`, API 환경값은 실제 API 도메인이다. GitHub `ryowoo2726-hue/crops-grow`의 `main` push가 프로덕션 빌드를 실행한다. Preview 자동 배포와 PR 댓글은 꺼 두었다. `.github` 워크플로는 검사/아티팩트용이며 Cloudflare 토큰을 요구하지 않는다. 배포에 `LOCAL_TEST_MODE=true`를 넣지 않는다.
 
 ## 다른 노트북의 실행 순서
 
@@ -234,7 +234,7 @@ node backend/manage.cjs reset-pin 학년 반 번호
 1. 최신 사용자 지시를 확인한다. 현재는 에셋 수정·GitHub 업로드·Cloudflare 연결이 허용되었다.
 2. 학교 노트북에서 DB 폴더 선택·API 실행·Tunnel 토큰 입력 후 실제 연결을 확인한다.
 3. 실제 미션 콘텐츠와 최초 등록 운영 방식·일일 횟수를 결정한다.
-4. Git/배포를 다시 요청받으면 소스 비밀정보·생성 파일 제외를 확인하고 저장소/Pages/프론트 DNS를 연결한다.
+4. 프론트 변경은 검사 후 `main`에 push하고 Pages 배포 결과와 사용자 도메인 응답을 확인한다.
 5. 실사용 100~500명 조건에 가까운 학교 Wi-Fi와 노트북에서 지연·RAM·DB 백업을 확인한다.
 6. 새 기능, API, 스키마, 자원 ID, 배포 완료/미완료 또는 실패 원인을 바꾸면 이 문서도 갱신한다. PIN·세션 토큰·Tunnel 토큰은 기록하지 않는다.
 

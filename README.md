@@ -6,7 +6,7 @@ Flutter Web 프론트와 다른 노트북에서 실행하는 Node.js + SQLite �
 
 - 프론트 주소: `https://cropgrow.sangsangbar.com`
 - API 주소: `https://cropgrow-api.sangsangbar.com`
-- Cloudflare 백엔드 Tunnel과 API DNS는 생성했습니다. 서버 노트북 커넥터는 아직 연결하지 않았습니다. 프론트 Pages·Git 연결·배포는 보류 상태입니다. 사용자의 최신 지시로 Git 작업을 하지 않습니다.
+- GitHub `main`과 Cloudflare Pages `cropgrow`를 연결했습니다. push하면 자동 배포됩니다. 프론트 도메인은 `cropgrow.sangsangbar.com`입니다. 백엔드 Tunnel과 API DNS도 설정했으며, 서버 노트북 커넥터 실행은 남아 있습니다.
 
 ## 실행과 배포
 

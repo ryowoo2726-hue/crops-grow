@@ -43,7 +43,7 @@ API는 **127.0.0.1:8787**에서만 대기합니다. Cloudflare Tunnel이 여기�
 
 다른 노트북에서 커넥터를 아직 실행하지 않아 Tunnel은 현재 `inactive`입니다. 커넥터 없이 DNS만 생성되어 있어도 API가 서비스되는 것은 아닙니다. 학교망은 Cloudflare로 나가는 7844 TCP/UDP 연결이 허용되어야 합니다. 차단되어 있으면 학교 네트워크 담당자에게 허용을 요청하세요. 관련 [공식 조건](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/configure-tunnels/tunnel-with-firewall/)을 참고합니다.
 
-프론트 `cropgrow.sangsangbar.com`은 아직 Pages 프로젝트·DNS·배포를 만들지 않았습니다. 최신 사용자 지시가 **Git 작업 금지**이므로 저장소 업로드/연결도 보류했습니다. 나중에 다시 허용받으면 GitHub 저장소 `ryowoo2726-hue/crops-grow`를 Pages Git integration으로 연결하고 빌드 명령 `bash scripts/build-web.sh`, 출력 폴더 `build/web`, `API_BASE_URL=https://cropgrow-api.sangsangbar.com`으로 설정합니다. `.github/workflows/frontend.yml`은 검사·빌드 아티팩트용입니다. 별도 Cloudflare API 토큰을 GitHub에 넣는 수동 배포 단계는 제거했습니다.
+프론트 `cropgrow.sangsangbar.com`은 Pages `cropgrow`와 연결했습니다. GitHub 저장소 `ryowoo2726-hue/crops-grow`의 `main` push 시 자동 배포됩니다. 빌드 명령은 `bash scripts/build-web.sh`, 출력 폴더는 `build/web`, `API_BASE_URL=https://cropgrow-api.sangsangbar.com`입니다. `.github/workflows/frontend.yml`은 검사·빌드 아티팩트용입니다. 별도 Cloudflare API 토큰을 GitHub에 넣을 필요가 없습니다. 노트북 API와 Tunnel 실행은 별도로 필요합니다.
 
 서버의 `FRONTEND_ORIGINS`는 실제 프론트 주소와 정확히 맞춥니다. 여러 주소는 쉼표로 구분합니다. CORS는 브라우저 접근 범위를 정하며 학생 인증은 별도의 세션으로 확인합니다. 노트북이 꺼지거나 API/Tunnel이 중지되면 프론트는 작은 연결 안내를 표시하고, 열려 있는 마지막 화면을 유지하되 서버 성공 응답 없이 보상·기록을 늘리지 않습니다.
 
