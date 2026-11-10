@@ -1,0 +1,13 @@
+.dart_tool/
+.flutter-plugins-dependencies
+build/
+coverage/
+*.iml
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+.env
+.env.*
+!.env.example
+backend/content/
+*.clixml

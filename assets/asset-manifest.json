@@ -1,0 +1,184 @@
+{
+  "project": "마음이 자라는 논밭 (A Paddy Field Where Hearts Grow)",
+  "targetAudience": "Middle School Students",
+  "version": "3.0.0",
+  "totalAssets": 66,
+  "colorTokens": {
+    "bgCream": "#F7F8F2",
+    "primaryGreen": "#4D9164",
+    "lightGreen": "#DDEEDC",
+    "riceLeafGreen": "#67A65B",
+    "riceEarYellow": "#E8BC52",
+    "waterDropBlue": "#79BFE5",
+    "textDarkGreen": "#263C30",
+    "sweetPotatoPurple": "#8E3B63",
+    "appleRed": "#E0483E",
+    "persimmonOrange": "#F2852E",
+    "radishCream": "#FAF8EF",
+    "peachPink": "#F7A698",
+    "watermelonGreen": "#4B963B",
+    "chiliRed": "#E01B1B",
+    "mangoGold": "#FFAA2B"
+  },
+  "spriteSpec": {
+    "canvasSize": [1024, 1024],
+    "format": "PNG (32-bit RGBA with transparent background)",
+    "cropAnchorPoint": {
+      "xRatio": 0.5,
+      "yRatio": 0.82,
+      "xPx": 512,
+      "yPx": 840
+    }
+  },
+  "cropTypes": [
+    {
+      "cropId": "rice",
+      "name": "벼",
+      "fieldBase": "environment/field-base.png",
+      "stages": [
+        { "stage": 1, "file": "crops/rice-stage-01.png", "heightRatio": 0.095 },
+        { "stage": 2, "file": "crops/rice-stage-02.png", "heightRatio": 0.25 },
+        { "stage": 3, "file": "crops/rice-stage-03.png", "heightRatio": 0.48 },
+        { "stage": 4, "file": "crops/rice-stage-04.png", "heightRatio": 0.64 }
+      ],
+      "harvestIcon": "crops/rice-harvest.png"
+    },
+    {
+      "cropId": "sweet-potato",
+      "name": "고구마",
+      "fieldBase": "environment/field-dry-base.png",
+      "stages": [
+        { "stage": 1, "file": "crops/sweet-potato-stage-01.png", "heightRatio": 0.12 },
+        { "stage": 2, "file": "crops/sweet-potato-stage-02.png", "heightRatio": 0.20 },
+        { "stage": 3, "file": "crops/sweet-potato-stage-03.png", "heightRatio": 0.28 },
+        { "stage": 4, "file": "crops/sweet-potato-stage-04.png", "heightRatio": 0.32 }
+      ],
+      "harvestIcon": "crops/sweet-potato-harvest.png"
+    },
+    {
+      "cropId": "soybean",
+      "name": "콩",
+      "fieldBase": "environment/field-dry-base.png",
+      "stages": [
+        { "stage": 1, "file": "crops/soybean-stage-01.png", "heightRatio": 0.09 },
+        { "stage": 2, "file": "crops/soybean-stage-02.png", "heightRatio": 0.25 },
+        { "stage": 3, "file": "crops/soybean-stage-03.png", "heightRatio": 0.45 },
+        { "stage": 4, "file": "crops/soybean-stage-04.png", "heightRatio": 0.58 }
+      ],
+      "harvestIcon": "crops/soybean-harvest.png"
+    },
+    {
+      "cropId": "radish",
+      "name": "무",
+      "fieldBase": "environment/field-dry-base.png",
+      "stages": [
+        { "stage": 1, "file": "crops/radish-stage-01.png", "heightRatio": 0.09 },
+        { "stage": 2, "file": "crops/radish-stage-02.png", "heightRatio": 0.20 },
+        { "stage": 3, "file": "crops/radish-stage-03.png", "heightRatio": 0.34 },
+        { "stage": 4, "file": "crops/radish-stage-04.png", "heightRatio": 0.42 }
+      ],
+      "harvestIcon": "crops/radish-harvest.png"
+    },
+    {
+      "cropId": "napa-cabbage",
+      "name": "배추",
+      "fieldBase": "environment/field-dry-base.png",
+      "stages": [
+        { "stage": 1, "file": "crops/napa-cabbage-stage-01.png", "heightRatio": 0.09 },
+        { "stage": 2, "file": "crops/napa-cabbage-stage-02.png", "heightRatio": 0.18 },
+        { "stage": 3, "file": "crops/napa-cabbage-stage-03.png", "heightRatio": 0.30 },
+        { "stage": 4, "file": "crops/napa-cabbage-stage-04.png", "heightRatio": 0.42 }
+      ],
+      "harvestIcon": "crops/napa-cabbage-harvest.png"
+    },
+    {
+      "cropId": "apple",
+      "name": "사과",
+      "fieldBase": "environment/field-dry-base.png",
+      "stages": [
+        { "stage": 1, "file": "crops/apple-stage-01.png", "heightRatio": 0.20 },
+        { "stage": 2, "file": "crops/apple-stage-02.png", "heightRatio": 0.35 },
+        { "stage": 3, "file": "crops/apple-stage-03.png", "heightRatio": 0.50 },
+        { "stage": 4, "file": "crops/apple-stage-04.png", "heightRatio": 0.64 }
+      ],
+      "harvestIcon": "crops/apple-harvest.png"
+    },
+    {
+      "cropId": "persimmon",
+      "name": "감",
+      "fieldBase": "environment/field-dry-base.png",
+      "stages": [
+        { "stage": 1, "file": "crops/persimmon-stage-01.png", "heightRatio": 0.20 },
+        { "stage": 2, "file": "crops/persimmon-stage-02.png", "heightRatio": 0.35 },
+        { "stage": 3, "file": "crops/persimmon-stage-03.png", "heightRatio": 0.50 },
+        { "stage": 4, "file": "crops/persimmon-stage-04.png", "heightRatio": 0.64 }
+      ],
+      "harvestIcon": "crops/persimmon-harvest.png"
+    },
+    {
+      "cropId": "peach",
+      "name": "복숭아",
+      "fieldBase": "environment/field-dry-base.png",
+      "stages": [
+        { "stage": 1, "file": "crops/peach-stage-01.png", "heightRatio": 0.20 },
+        { "stage": 2, "file": "crops/peach-stage-02.png", "heightRatio": 0.35 },
+        { "stage": 3, "file": "crops/peach-stage-03.png", "heightRatio": 0.50 },
+        { "stage": 4, "file": "crops/peach-stage-04.png", "heightRatio": 0.64 }
+      ],
+      "harvestIcon": "crops/peach-harvest.png"
+    },
+    {
+      "cropId": "watermelon",
+      "name": "수박",
+      "fieldBase": "environment/field-dry-base.png",
+      "stages": [
+        { "stage": 1, "file": "crops/watermelon-stage-01.png", "heightRatio": 0.12 },
+        { "stage": 2, "file": "crops/watermelon-stage-02.png", "heightRatio": 0.22 },
+        { "stage": 3, "file": "crops/watermelon-stage-03.png", "heightRatio": 0.30 },
+        { "stage": 4, "file": "crops/watermelon-stage-04.png", "heightRatio": 0.35 }
+      ],
+      "harvestIcon": "crops/watermelon-harvest.png"
+    },
+    {
+      "cropId": "chili-pepper",
+      "name": "고추",
+      "fieldBase": "environment/field-dry-base.png",
+      "stages": [
+        { "stage": 1, "file": "crops/chili-pepper-stage-01.png", "heightRatio": 0.12 },
+        { "stage": 2, "file": "crops/chili-pepper-stage-02.png", "heightRatio": 0.25 },
+        { "stage": 3, "file": "crops/chili-pepper-stage-03.png", "heightRatio": 0.45 },
+        { "stage": 4, "file": "crops/chili-pepper-stage-04.png", "heightRatio": 0.58 }
+      ],
+      "harvestIcon": "crops/chili-pepper-harvest.png"
+    },
+    {
+      "cropId": "mango",
+      "name": "망고",
+      "fieldBase": "environment/field-dry-base.png",
+      "stages": [
+        { "stage": 1, "file": "crops/mango-stage-01.png", "heightRatio": 0.20 },
+        { "stage": 2, "file": "crops/mango-stage-02.png", "heightRatio": 0.35 },
+        { "stage": 3, "file": "crops/mango-stage-03.png", "heightRatio": 0.50 },
+        { "stage": 4, "file": "crops/mango-stage-04.png", "heightRatio": 0.64 }
+      ],
+      "harvestIcon": "crops/mango-harvest.png"
+    }
+  ],
+  "characters": [
+    { "id": "drop-default", "file": "characters/drop-default.png", "name": "기본·인사 캐릭터" },
+    { "id": "drop-cheer", "file": "characters/drop-cheer.png", "name": "응원 캐릭터" },
+    { "id": "drop-happy", "file": "characters/drop-happy.png", "name": "완료·기쁨 캐릭터" },
+    { "id": "drop-celebrate", "file": "characters/drop-celebrate.png", "name": "수확·축하 캐릭터" }
+  ],
+  "environments": [
+    { "id": "field-base", "file": "environment/field-base.png", "name": "논밭 바닥 (벼 전용)" },
+    { "id": "field-dry-base", "file": "environment/field-dry-base.png", "name": "마른 흙 바닥 (밭 작물·과수용)" },
+    { "id": "bg-school-farm", "file": "environment/bg-school-farm.png", "name": "마석중 학교 배경 모바일 씬 (768×1376, 9:16)" }
+  ],
+  "uiMockups": [
+    { "id": "ui-main", "file": "ui-mockups/ui-main.png", "name": "메인 화면 시안" },
+    { "id": "ui-entry", "file": "ui-mockups/ui-entry.png", "name": "입장 화면 시안" },
+    { "id": "ui-mission", "file": "ui-mockups/ui-mission.png", "name": "오늘의 미션 화면 시안" },
+    { "id": "ui-harvest", "file": "ui-mockups/ui-harvest.png", "name": "수확·보상 화면 시안" }
+  ]
+}

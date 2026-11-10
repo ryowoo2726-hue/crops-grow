@@ -1,0 +1,73 @@
+const test=require('node:test');
+const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const os=require('node:os');
+const path=require('node:path');
+const {backup}=require('node:sqlite');
+const {createBackend}=require('./server.cjs');
+
+test('DB 복원, PIN, 서버 판정, 중복 보상 방지, CORS와 클래스 분리',async t=>{
+  const directory=fs.mkdtempSync(path.join(os.tmpdir(),'growgame-backend-'));
+  let clock=Date.parse('2026-11-10T00:00:00Z');
+  let app=createBackend({directory,now:()=>clock});
+  const start=async()=>{await new Promise(resolve=>app.server.listen(0,'127.0.0.1',resolve));return `http://127.0.0.1:${app.server.address().port}`;};
+  const stop=async()=>{await new Promise(resolve=>app.server.close(resolve));app.store.db.close();};
+  let base=await start();
+  t.after(async()=>{await stop();assert.ok(directory.startsWith(path.resolve(os.tmpdir())+path.sep));fs.rmSync(directory,{recursive:true,force:true});});
+  const api=async(route,{token,body,origin}={})=>{
+    const response=await fetch(base+route,{method:body?'POST':'GET',headers:{'Content-Type':'application/json',...(token?{Authorization:'Bearer '+token}:{}),...(origin?{Origin:origin}:{})},...(body?{body:JSON.stringify(body)}:{})});
+    return {status:response.status,data:await response.json()};
+  };
+  const profile={grade:1,classNo:1,number:1};
+  assert.equal((await api('/api/session',{body:{profile,pin:'12'}})).status,400);
+  const login=await api('/api/session',{body:{profile,pin:'1234'}});
+  assert.equal(login.status,200); const token=login.data.token;
+  assert.equal(login.data.state.progress,0);
+  assert.ok(!JSON.stringify(login.data).includes('pin_hash'));
+  assert.equal((await api('/api/me')).status,401);
+  assert.equal((await api('/api/me',{token,origin:'https://untrusted.example'})).status,403);
+  assert.equal((await api('/api/me',{token,origin:'http://localhost:4174'})).status,200);
+  for(let i=0;i<5;i++) assert.equal((await api('/api/session',{body:{profile,pin:'9999'}})).status,401);
+  assert.equal((await api('/api/session',{body:{profile,pin:'1234'}})).status,429);
+  clock+=16*60000;
+  assert.equal((await api('/api/session',{body:{profile,pin:'1234'}})).status,200);
+  const water={kind:'water',requestId:'water-request-0001'};
+  const duplicate=await Promise.all([api('/api/actions',{token,body:water}),api('/api/actions',{token,body:water})]);
+  duplicate.forEach(x=>assert.equal(x.data.state.progress,50));
+  assert.equal((await api('/api/actions',{token,body:{kind:'water',requestId:'water-request-0002'}})).data.state.progress,100);
+  const harvest={kind:'harvest',requestId:'harvest-request-01'};
+  assert.equal((await api('/api/actions',{token,body:harvest})).data.state.harvestCount,1);
+  assert.equal((await api('/api/actions',{token,body:harvest})).data.state.harvestCount,1);
+  const garden=await api('/api/garden?page=0',{token}); assert.equal(garden.data.total,1); assert.equal(garden.data.items.length,1);
+  const other=await api('/api/session',{body:{profile:{...profile,classNo:2},pin:'4321'}});
+  assert.equal((await api('/api/garden',{token:other.data.token})).data.total,0);
+  await api('/api/actions',{token,body:{kind:'plant',cropId:'apple',requestId:'plant-request-0001'}});
+  const quiz={week:'2026-11-09',questions:[{question:'문제',choices:['보기 가','보기 나','보기 다','보기 라'],correctIndex:2,explanation:'정답 해설'}]};
+  assert.throws(()=>app.store.importQuiz({...quiz,questions:[{...quiz.questions[0],choices:['가','나']}]}));
+  app.store.importQuiz(quiz);
+  const publicQuiz=(await api('/api/quizzes/current',{token})).data;
+  assert.equal(publicQuiz.questions[0].choices.length,4);
+  assert.ok(!JSON.stringify(publicQuiz).includes('correctIndex'));
+  assert.ok(!JSON.stringify(publicQuiz).includes('정답 해설'));
+  const answer={week:publicQuiz.week,revision:publicQuiz.revision,questionId:publicQuiz.questions[0].id,answerIndex:0};
+  assert.deepEqual((await api('/api/quizzes/check',{token,body:answer})).data,{correct:false,explanation:''});
+  assert.equal((await api('/api/actions',{token,body:{kind:'quiz',missionRevision:publicQuiz.revision,requestId:'quiz-request-00001'}})).status,409);
+  assert.equal((await api('/api/quizzes/check',{token,body:{...answer,answerIndex:2}})).data.correct,true);
+  assert.equal((await api('/api/actions',{token,body:{kind:'quiz',missionRevision:publicQuiz.revision,requestId:'quiz-request-00002'}})).data.state.progress,30);
+  app.store.importQuiz(quiz);
+  assert.equal((await api('/api/quizzes/check',{token,body:answer})).status,409);
+  await backup(app.store.db,path.join(directory,'backup.sqlite'));
+  await stop(); app=createBackend({directory,now:()=>clock}); base=await start();
+  const restored=(await api('/api/me',{token})).data.state;
+  assert.equal(restored.harvestCount,1); assert.equal(restored.collectionCounts.rice,1); assert.equal(restored.progress,30);
+  assert.ok(fs.statSync(path.join(directory,'backup.sqlite')).size>0);
+  assert.equal(app.store.db.prepare('SELECT COUNT(*) count FROM action_receipts').get().count,5);
+  // 조회 500회 검증. 로컬 테스트 클라이언트의 TCP 연결 폭주를 피하고 동시성은 50으로 제한합니다.
+  for(let batch=0;batch<10;batch++) {
+    const reads=await Promise.all(Array.from({length:50},()=>api('/api/me',{token})));
+    assert.ok(reads.every(r=>r.status===200 && r.data.state.harvestCount===1));
+  }
+  await app.store.resetPin(profile,'0246');
+  assert.equal((await api('/api/me',{token})).status,401);
+  assert.equal((await api('/api/session',{body:{profile,pin:'0246'}})).status,200);
+});

@@ -1,0 +1,9 @@
+{
+  "accountId": "1ea0633d16d8c951812c6a18ce932394",
+  "zoneId": "da77fffb3dc5c6f2b125562bb9b52bf9",
+  "name": "cropgrow-api",
+  "tunnelId": "f376c53c-e868-4d64-b83e-2dc8e1098fe5",
+  "hostname": "cropgrow-api.sangsangbar.com",
+  "origin": "http://127.0.0.1:8787",
+  "management": "cloudflare"
+}

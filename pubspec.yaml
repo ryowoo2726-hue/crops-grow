@@ -1,0 +1,22 @@
+name: growgame
+description: 마석중학교 농작물 키우기 Flutter Web
+publish_to: none
+version: 1.0.0+1
+environment:
+  sdk: '>=3.10.0 <4.0.0'
+dependencies:
+  flutter:
+    sdk: flutter
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/environment/
+    - assets/characters/
+    - assets/crops/
+  fonts:
+    - family: NotoSansKR
+      fonts:
+        - asset: assets/fonts/NotoSansKR.ttf
