@@ -4,6 +4,8 @@ Flutter Web 프론트와 다른 노트북에서 실행하는 Node.js + SQLite �
 
 **다른 AI 또는 다음 작업은 [프로젝트 인수인계 문서](docs/PROJECT_HANDOFF.md)를 먼저 읽어주세요.** 현재 상태·규칙·API·DB·검증·주의할 오류와 남은 작업을 기록합니다.
 
+**서버를 다른 노트북에 처음 설치할 때는 [서버·DB 저장소 설정 설명서](docs/서버_노트북_설정_설명서.md)를 따라 하세요.** 설치, 저장 폴더 선택, 터널 연결, 매일 실행, 퀴즈 등록, 백업·복원을 순서대로 설명합니다.
+
 - 프론트 주소: `https://cropgrow.sangsangbar.com`
 - API 주소: `https://cropgrow-api.sangsangbar.com`
 - GitHub `main`과 Cloudflare Pages `cropgrow`를 연결했습니다. push하면 자동 배포됩니다. 프론트 도메인은 `cropgrow.sangsangbar.com`입니다. 백엔드 Tunnel과 API DNS도 설정했으며, 서버 노트북 커넥터 실행은 남아 있습니다.
