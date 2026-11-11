@@ -6,6 +6,7 @@ const {spawn}=require('node:child_process');
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 (async()=>{
   const label=process.argv[2]||'loading',url=process.env.GROWGAME_TEST_URL||'http://localhost:4180/';
+  const production=process.env.GROWGAME_TEST_PRODUCTION==='true';
   const profile=fs.mkdtempSync(path.join(os.tmpdir(),'growgame-loading-'));
   const chrome=spawn(process.env.CHROME_PATH||'C:/Program Files/Google/Chrome/Application/chrome.exe',
     ['--headless','--no-first-run','--remote-debugging-port=0','--user-data-dir='+profile,'about:blank'],{stdio:'ignore',windowsHide:true});
@@ -19,7 +20,9 @@ const sleep=ms=>new Promise(r=>setTimeout(r,ms));
     await new Promise(r=>socket.addEventListener('open',r,{once:true}));
     let id=0;const pending=new Map(),errors=[];
     socket.addEventListener('message',e=>{const m=JSON.parse(e.data);if(m.id){const p=pending.get(m.id);pending.delete(m.id);m.error?p.reject(m.error):p.resolve(m.result)}
-      if(m.method==='Runtime.exceptionThrown')errors.push(m.params.exceptionDetails)});
+      if(m.method==='Runtime.exceptionThrown')errors.push(m.params.exceptionDetails);
+      if(m.method==='Network.responseReceived'&&m.params.response.status>=400&&/\.(wasm|mjs|js|woff2|webp|otf|ttf|json)(\?|$)/.test(m.params.response.url))errors.push({url:m.params.response.url,status:m.params.response.status});
+    });
     const send=(method,params={})=>new Promise((resolve,reject)=>{const key=++id;pending.set(key,{resolve,reject});socket.send(JSON.stringify({id:key,method,params}))});
     const run=async expression=>{const r=await send('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true});assert.ok(!r.exceptionDetails,JSON.stringify(r.exceptionDetails));return r.result.value};
     const wait=async expression=>{for(let i=0;i<600;i++){if(await run(expression))return;await sleep(100)}throw Error('Timeout '+expression)};
@@ -35,12 +38,17 @@ const sleep=ms=>new Promise(r=>setTimeout(r,ms));
         await wait('!!window.__firstFrame');
         await wait("!!document.querySelector('flt-semantics-placeholder')");
         await run("document.querySelector('flt-semantics-placeholder').click()");
-        await wait("document.querySelector('flt-semantics-host')?.textContent.includes('로컬 테스트')");
-        await wait("document.querySelector('flt-semantics-host')?.textContent.includes('벼 성장 0%') || !!document.querySelector('flt-semantics[aria-label=\"벼 성장 0%\"]')");
-        const cropReadyMs=await run('performance.now()');
+        await wait(`document.querySelector('flt-semantics-host')?.textContent.includes('${production?'시작하기':'로컬 테스트'}')`);
+        if(production) assert.equal(await run("document.querySelector('flt-semantics-host')?.textContent.includes('로컬 테스트')"),false);
+        else await wait("document.querySelector('flt-semantics-host')?.textContent.includes('벼 성장 0%') || !!document.querySelector('flt-semantics[aria-label=\"벼 성장 0%\"]')");
+        const cropReadyMs=production?null:await run('performance.now()');
         await sleep(4500);
+        // Finish the deferred font download before testing a fully cached revisit.
+        if(label.startsWith('after')) await wait("performance.getEntriesByType('resource').some(r=>r.name.includes('NotoSansKR-extended-')&&r.responseEnd>0)");
         const result=await run(`({firstFrameMs:window.__firstFrame,cropReadyMs:${cropReadyMs},resources:performance.getEntriesByType('resource').map(r=>({name:new URL(r.name).pathname,start:r.startTime,end:r.responseEnd,transfer:r.transferSize,encoded:r.encodedBodySize,decoded:r.decodedBodySize}))})`);
         result.iteration=iteration+1;result.visit=visit;
+        if(production) result.galleryRequests=[];
+        else {
         const point=await run("(()=>{const e=[...document.querySelectorAll('flt-semantics[role=tab][flt-tappable]')].find(e=>(e.getAttribute('aria-label')||e.textContent).includes('도감'));const r=e.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})()");
         const before=await run('performance.getEntriesByType("resource").length');
         await send('Input.dispatchMouseEvent',{type:'mousePressed',...point,button:'left',clickCount:1});
@@ -48,6 +56,7 @@ const sleep=ms=>new Promise(r=>setTimeout(r,ms));
         await wait("document.querySelector('flt-semantics-host')?.textContent.includes('작물 도감')");
         await sleep(700);
         result.galleryRequests=await run(`performance.getEntriesByType('resource').slice(${before}).map(r=>({name:new URL(r.name).pathname,transfer:r.transferSize}))`);
+        }
         if(label.startsWith('after')){
           const background=result.resources.find(r=>r.name.includes('bg-school'));
           assert.ok(background.start<result.firstFrameMs,'background is requested before the Flutter frame');
@@ -56,7 +65,7 @@ const sleep=ms=>new Promise(r=>setTimeout(r,ms));
         }
         reports.push(result);
         if(iteration===0){const shot=await send('Page.captureScreenshot');fs.writeFileSync(path.join(os.tmpdir(),`growgame-${label}-${visit}.png`),Buffer.from(shot.data,'base64'))}
-        console.log(JSON.stringify({label,iteration:iteration+1,visit,firstFrameMs:Math.round(result.firstFrameMs),cropReadyMs:Math.round(cropReadyMs),bytes:result.resources.reduce((s,r)=>s+r.transfer,0),galleryRequests:result.galleryRequests.length}));
+        console.log(JSON.stringify({label,iteration:iteration+1,visit,firstFrameMs:Math.round(result.firstFrameMs),cropReadyMs:cropReadyMs===null?null:Math.round(cropReadyMs),bytes:result.resources.reduce((s,r)=>s+r.transfer,0),galleryRequests:result.galleryRequests.length}));
       }
     }
     assert.deepEqual(errors,[]);

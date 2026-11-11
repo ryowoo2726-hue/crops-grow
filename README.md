@@ -10,7 +10,7 @@ Flutter Web 프론트와 현재 서버 노트북에서 실행하는 Node.js + SQ
 
 ## 웹 로딩 최적화 (2026-11-11)
 
-**최신 사용자 지시로 Git 업로드를 승인받아 배포를 진행 중입니다.** 물방울 점프·물 튀김과 미션 영양분 흡수 효과를 실제 게임에 연결했습니다. 전체 최적화는 WebAssembly + 기존 JS 대체 빌드, 배경 조기 표시·용량 축소, 한글 우선 폰트/한자 후속 로딩, 현재 성장 단계 우선 표시, 도감·정원용 256px 이미지, 폰트·엔진·앱의 내용별 캐시를 포함합니다. 원본 PNG와 공식 SQLite·채점 정책은 유지합니다. 배포 결과는 [인수인계](docs/PROJECT_HANDOFF.md) 최상단을 확인하세요.
+**최신 물방울 효과·전체 최적화의 GitHub 업로드와 Cloudflare 운영 배포를 완료했습니다.** 물방울 점프·물 튀김과 미션 영양분 흡수 효과를 실제 게임에 연결했습니다. 전체 최적화는 WebAssembly + 기존 JS 대체 빌드, 배경 조기 표시·용량 축소, 한글 우선 폰트/한자 후속 로딩, 현재 성장 단계 우선 표시, 도감·정원용 256px 이미지, 폰트·엔진·앱의 내용별 캐시를 포함합니다. 원본 PNG와 공식 SQLite·채점 정책은 유지합니다. 배포 결과는 [인수인계](docs/PROJECT_HANDOFF.md) 최상단을 확인하세요.
 
 8Mbps·40ms 로컬 Chrome 측정(각 3회 중앙값)에서 첫 화면 13.38 → 8.41초, 현재 작물 준비 14.57 → 8.68초, 배경 전송 완료 14.79 → 0.25초, 재접속 1.00 → 0.33초입니다. 실제 학교망 속도를 보장하는 수치는 아닙니다.
 
@@ -88,6 +88,8 @@ node tests/loading.browser.cjs after
 ```
 
 측정은 Chrome, 390×844, 8Mbps·40ms 조건으로 첫 접속/재접속 각각 3회입니다. 결과와 스크린샷은 OS 임시 폴더에 저장합니다. 이때 API·Tunnel·학생 DB를 시작하지 않습니다. `WEB_ROOT` 환경변수로 다른 빌드 폴더도 검증할 수 있습니다. 운영 빌드를 만들 때는 `LOCAL_TEST_MODE` 없이 다시 빌드합니다.
+
+`GROWGAME_TEST_FORCE_JS=true`로 효과 검증을 실행하면 JS 대체 모드도 확인합니다. `GROWGAME_TEST_PRODUCTION=true`, `GROWGAME_TEST_URL=https://cropgrow.sangsangbar.com/`를 지정한 `node tests/loading.browser.cjs after-live`는 실제 사이트의 로그인 전 화면만 검사하며 로그인이나 학생 데이터 변경을 하지 않습니다. 캐시 재접속 검증은 후속 폰트 다운로드 완료 뒤에 실행합니다.
 
 ```powershell
 node --test backend/backend.test.cjs
