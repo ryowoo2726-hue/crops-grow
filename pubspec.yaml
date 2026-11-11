@@ -13,10 +13,8 @@ dev_dependencies:
 flutter:
   uses-material-design: true
   assets:
-    - assets/environment/
-    - assets/characters/
-    - assets/crops/
+    - assets/optimized/
   fonts:
     - family: NotoSansKR
       fonts:
-        - asset: assets/fonts/NotoSansKR.woff2
+        - asset: assets/fonts/NotoSansKR-fc0b385edc9df480.woff2

@@ -1,7 +1,8 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import '../image_assets.dart';
 
-const cropGrowthDuration = Duration(milliseconds: 1800);
+const cropGrowthDuration = Duration(milliseconds: 700);
 const cropRootAnchor = Alignment(0, .64); // 원본 PNG의 (50%, 82%).
 
 ({int from, int to, double blend, double incomingScale}) growthPose(
@@ -42,7 +43,7 @@ class _CropGrowthState extends State<CropGrowth> {
   int generation = 0;
   bool ready = false, failed = false;
   String stagePath(int index) =>
-      'assets/crops/${widget.cropId}-stage-0${index + 1}.png';
+      imageAssets['crops/${widget.cropId}-stage-0${index + 1}']!;
 
   @override
   void didChangeDependencies() {
@@ -65,6 +66,11 @@ class _CropGrowthState extends State<CropGrowth> {
     });
     Object? failure;
     await Future.wait([
+      precacheImage(
+        gameImage('crops/${widget.cropId}-harvest', width: 512),
+        context,
+        onError: (_, _) {},
+      ),
       for (var i = 0; i < 4; i++)
         precacheImage(
           AssetImage(stagePath(i)),

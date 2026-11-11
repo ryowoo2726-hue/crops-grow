@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'backend/api.dart';
 import 'crops/crop_growth.dart';
 import 'game.dart';
+import 'image_assets.dart';
 import 'local_test_data.dart';
 import 'missions.dart';
 import 'missions/quiz/content.dart';
@@ -124,6 +125,7 @@ class _FarmGameState extends State<FarmGame> with WidgetsBindingObserver {
   final pendingRequests = <String, String>{};
   bool disconnected = false, refreshing = false;
   String? loadedCrop;
+  bool galleryWarmed = false;
   bool get cropReady =>
       !remote || r['cropId'] == null || loadedCrop == r['cropId'];
   String? loginError;
@@ -252,6 +254,7 @@ class _FarmGameState extends State<FarmGame> with WidgetsBindingObserver {
       disconnected = false;
       loginError = null;
     });
+    if (state['cropId'] == null) unawaited(warmGallery());
   }
 
   Future<void> refreshRemote() async {
@@ -356,21 +359,45 @@ class _FarmGameState extends State<FarmGame> with WidgetsBindingObserver {
     }
   }
 
+  Future<void> warmGallery() async {
+    if (galleryWarmed) return;
+    galleryWarmed = true;
+    for (final name in [
+      'characters/drop-default',
+      'characters/drop-happy',
+      'characters/drop-celebrate',
+      for (final crop in crops.keys) 'crops/$crop-harvest',
+    ]) {
+      if (!mounted) return;
+      await precacheImage(
+        gameImage(name, width: name.startsWith('crops/') ? 512 : 256),
+        context,
+        onError: (_, _) {},
+      );
+    }
+  }
+
   Widget image(
     String name, {
     double? width,
     double? height,
     int? decodeWidth,
-  }) => Image.asset(
-    'assets/$name.png',
+  }) => Image(
+    image: gameImage(
+      name,
+      width: name.endsWith('-harvest')
+          ? 512
+          : name.startsWith('characters/')
+          ? 256
+          : decodeWidth ??
+                (((width ?? height ?? 1024) *
+                        MediaQuery.devicePixelRatioOf(context))
+                    .ceil()
+                    .clamp(128, 1024)),
+    ),
     width: width,
     height: height,
     fit: BoxFit.contain,
-    cacheWidth:
-        decodeWidth ??
-        (((width ?? height ?? 1024) * MediaQuery.devicePixelRatioOf(context))
-            .ceil()
-            .clamp(128, 1024)),
     errorBuilder: (_, _, _) =>
         const Center(child: Icon(Icons.broken_image_outlined, color: ink)),
   );
@@ -570,8 +597,7 @@ class _FarmGameState extends State<FarmGame> with WidgetsBindingObserver {
         kind == 'mission' ? missionType! : kind,
         missionRevision: missionRevision,
       );
-      if (result != null)
-        await Future<void>.delayed(const Duration(milliseconds: 1800));
+      if (result != null) await Future<void>.delayed(cropGrowthDuration);
       if (mounted) setState(() => busy = false);
       return;
     }
@@ -580,7 +606,7 @@ class _FarmGameState extends State<FarmGame> with WidgetsBindingObserver {
       growRecord(r, kind);
     });
     save();
-    await Future<void>.delayed(const Duration(milliseconds: 1800));
+    await Future<void>.delayed(cropGrowthDuration);
     if (mounted) setState(() => busy = false);
   }
 
@@ -1327,6 +1353,7 @@ class _FarmGameState extends State<FarmGame> with WidgetsBindingObserver {
                             progress: (r['progress'] as num).toDouble(),
                             onReady: () {
                               if (mounted) setState(() => loadedCrop = crop);
+                              unawaited(warmGallery());
                             },
                           ),
                         ],
@@ -1568,7 +1595,10 @@ class _FarmGameState extends State<FarmGame> with WidgetsBindingObserver {
     body: Stack(
       fit: StackFit.expand,
       children: [
-        Image.asset('assets/environment/bg-school-farm.png', fit: BoxFit.cover),
+        Image(
+          image: gameImage('environment/bg-school-farm'),
+          fit: BoxFit.cover,
+        ),
         if (record == null)
           login()
         else

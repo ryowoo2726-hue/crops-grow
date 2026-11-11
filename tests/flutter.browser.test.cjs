@@ -28,9 +28,15 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     socket = new WebSocket(pages.find(p => p.type === 'page').webSocketDebuggerUrl);
     await new Promise(resolve => socket.addEventListener('open', resolve, {once: true}));
     let sequence = 0;
-    const pending = new Map(), errors = [];
+    const pending = new Map(), errors = [], harvestImages = new Map();
     socket.addEventListener('message', event => {
       const m = JSON.parse(event.data);
+      if (m.method === 'Network.requestWillBeSent' && /\/rice-harvest-[a-f0-9]+\.webp/.test(m.params.request.url)) {
+        harvestImages.set(m.params.requestId, {complete:false});
+      }
+      if (m.method === 'Network.loadingFinished' && harvestImages.has(m.params.requestId)) {
+        harvestImages.get(m.params.requestId).complete = true;
+      }
       if (m.id) { const p = pending.get(m.id); pending.delete(m.id); m.error ? p.reject(m.error) : p.resolve(m.result); }
       if (m.method === 'Runtime.exceptionThrown') errors.push(m.params.exceptionDetails);
       if (m.method === 'Runtime.consoleAPICalled' && m.params.type === 'error') errors.push(m.params.args.map(a=>a.value || a.description));
@@ -47,6 +53,7 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
       throw Error('대기 시간 초과: ' + expression + '\n' + JSON.stringify(errors));
     };
     await send('Runtime.enable');
+    await send('Network.enable');
     await send('Page.enable');
     await send('Emulation.setDeviceMetricsOverride', {width: 390, height: 844, deviceScaleFactor: 1, mobile: true});
     await send('Page.navigate', {url: process.env.GROWGAME_TEST_URL || 'http://localhost:4174/'});
@@ -101,8 +108,11 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     await sleep(1900); await clickText('물 주기');
     await wait("document.querySelector('flt-semantics-host')?.textContent.includes('100 / 100%')");
     await sleep(1900);
+    assert.ok([...harvestImages.values()].some(image=>image.complete), '수확 이미지는 수확 전에 준비됨');
+    const harvestRequestsBefore = harvestImages.size;
     await clickText('수확하기');
     await wait("document.querySelector('flt-semantics-host')?.textContent.includes('우리 반 정원에 벼 수확이 더해졌어요.')");
+    assert.equal(harvestImages.size,harvestRequestsBefore,'수확 팝업을 열 때 추가 이미지 다운로드 없음');
     assert.equal(app.store.snapshot(1).harvestCount,1);
     assert.equal(app.store.snapshot(1).collectionCounts.rice,1);
     assert.equal(await run("localStorage.getItem('growgame.figma-game.v1')"),null);

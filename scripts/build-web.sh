@@ -10,3 +10,4 @@ fi
 flutter pub get
 flutter build web --no-web-resources-cdn \
   --dart-define=API_BASE_URL="${API_BASE_URL:-https://cropgrow-api.sangsangbar.com}"
+node scripts/finalize-web.cjs

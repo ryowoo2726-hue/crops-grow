@@ -7,7 +7,8 @@
 - `characters/`: 물방울 캐릭터 원본.
 - `fonts/`: Noto Sans KR 글꼴과 OFL 라이선스.
 
-웹 배포에는 `fonts/NotoSansKR.woff2`를 사용합니다. 원본 TTF의 전체 글리프·문자 매핑·가변 굵기를 유지한 WOFF2 압축본으로, 10,414,588바이트에서 3,908,652바이트로 줄였습니다. 원본 `NotoSansKR.ttf`와 OFL 라이선스도 보관합니다. 재생성은 `python -m fontTools.ttLib.woff2 compress assets/fonts/NotoSansKR.ttf -o assets/fonts/NotoSansKR.woff2`로 수행합니다. 이 앱의 배포 대상은 Flutter Web이며 WOFF2는 Flutter 데스크톱 실행용 폰트가 아닙니다.
+웹 배포에는 `fonts/NotoSansKR-fc0b385edc9df480.woff2`를 사용합니다. 원본 TTF의 전체 글리프·문자 매핑·가변 굵기를 유지한 WOFF2 압축본으로, 10,414,588바이트에서 3,908,652바이트로 줄였습니다. 원본 `NotoSansKR.ttf`와 OFL 라이선스도 보관합니다. 재생성은 `python -m fontTools.ttLib.woff2 compress assets/fonts/NotoSansKR.ttf -o assets/fonts/NotoSansKR.woff2`로 수행합니다. 이 앱의 배포 대상은 Flutter Web이며 WOFF2는 Flutter 데스크톱 실행용 폰트가 아닙니다.
+- `optimized/`: 화면용 WebP 복사본. 파일 내용의 SHA-256을 파일명에 포함해 장기 캐시와 안전한 갱신을 함께 사용합니다.
 - `ui-mockups/`: 원본 화면 디자인 참고 시안.
 - `asset-manifest.json`: 원본 이미지 메타데이터와 컬러 토큰.
 
@@ -18,3 +19,5 @@
 제작 명세: [기본 이미지 프롬프트](../디자인_이미지_생성_프롬프트.md), [가을 작물 프롬프트](../가을_작물_이미지_생성_프롬프트.md).
 
 2026-11-11 배경 정리: 복숭아 2~4단계, 수박 2~4단계, 고추 4단계의 잎·줄기 사이 흰 배경과 중성색 테두리 잔여물을 알파 채널로 제거했습니다. 사용자 승인에 따라 원본 픽셀 기반으로 처리했으며 1024×1024 캔버스와 밑동 위치는 유지했습니다. 무·배추의 흰 부분은 원래 작물 색이므로 보존했습니다. 이미지 생성 도구의 시안은 크기·그림이 달라 채택하지 않았습니다.
+
+2026-11-11 추가 최적화: 원본 PNG 62개는 보존하고, `python scripts/prepare-images.py`(Pillow 필요)로 웹 배포용 복사본과 `lib/image_assets.dart`를 생성합니다. 성장 44장은 1024×1024 RGBA 픽셀을 그대로 유지합니다. 수확 이미지는 512px, 캐릭터는 256px 표시용으로 줄이고 lossless WebP로 저장합니다. 생성기가 디코딩 후 픽셀 일치를 확인합니다. 전체 12,952,060 → 5,135,774바이트, 수확 11개 3,149,794 → 591,860바이트입니다. 원본을 수정하면 생성기를 다시 실행하고 변경된 파일명과 매핑을 함께 커밋하세요. 폰트를 수정할 때도 파일 내용의 SHA-256 16자리를 파일명에 반영하고 pubspec·HTML 선로딩 경로를 함께 바꿉니다.

@@ -1,6 +1,6 @@
 ﻿# 마석중학교 농작물 키우기
 
-Flutter Web 프론트와 다른 노트북에서 실행하는 Node.js + SQLite 백엔드입니다.
+Flutter Web 프론트와 현재 서버 노트북에서 실행하는 Node.js + SQLite 백엔드입니다.
 
 **다른 AI 또는 다음 작업은 [프로젝트 인수인계 문서](docs/PROJECT_HANDOFF.md)를 먼저 읽어주세요.** 현재 상태·규칙·API·DB·검증·주의할 오류와 남은 작업을 기록합니다.
 
@@ -11,6 +11,8 @@ Flutter Web 프론트와 다른 노트북에서 실행하는 Node.js + SQLite �
 ## 웹 로딩 최적화 (2026-11-11)
 
 전체 문자와 굵기를 유지하는 WOFF2 폰트, 폰트 선로딩, HTML 내 Flutter bootstrap을 적용해 운영 배포했습니다. 로컬 캐시 없음·8Mbps·지연 40ms 측정에서 첫 화면이 약 22.1초에서 16.3초로 줄었습니다. 실제 접속 시간은 네트워크에 따라 달라집니다. 현재 백엔드는 사용자 요청으로 종료되어 있으므로 게임을 운영할 때 프로젝트 폴더의 `GrowGame 시작.cmd`를 실행하세요. 공식 DB 위치는 `C:\scr\grow`입니다.
+
+사진·화면 전환 최적화: 화면용 이미지 합계 약 60% 감소, 현재 작물의 수확 이미지 선준비, 작물 선택 이미지 백그라운드 준비, 성장 대기 0.7초를 적용했습니다. 앱 코드·엔진·폰트·이미지는 내용별 주소와 장기 브라우저 캐시를 사용합니다. GitHub/Cloudflare 빌드는 마무리 스크립트를 자동 실행합니다.
 
 ## 실행과 배포
 
@@ -33,6 +35,7 @@ flutter run -d chrome --web-port=4180 --dart-define=LOCAL_TEST_MODE=true
 ```powershell
 flutter pub get
 flutter build web --no-web-resources-cdn
+node scripts/finalize-web.cjs
 node server.cjs
 ```
 
@@ -40,6 +43,7 @@ node server.cjs
 
 ```powershell
 flutter build web --no-web-resources-cdn --dart-define=API_BASE_URL=http://127.0.0.1:8787
+node scripts/finalize-web.cjs
 ```
 
 개발 중에는 `flutter run -d chrome --web-port=4174 --dart-define=API_BASE_URL=http://127.0.0.1:8787`을 사용할 수 있습니다. 같은 포트의 `node server.cjs`와 동시에 실행하지 않습니다.
