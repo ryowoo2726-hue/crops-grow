@@ -1,12 +1,12 @@
 # GrowGame 프로젝트 인수인계
 
-## 2026-11-11 로딩 최적화: 검증 완료, 운영 배포 대기
+## 2026-11-11 로딩 최적화: 운영 배포 완료
 
 웹 폰트를 전체 TTF 10,414,588바이트에서 WOFF2 3,908,652바이트로 압축했다. 문자 매핑 23,174개, 글리프 24,964개와 가변 굵기 100~900을 유지했으며 원본 TTF와 OFL은 보존했다. pubspec은 WOFF2를 사용하고 HTML에서 폰트를 선로딩한다. Flutter bootstrap을 HTML에 포함해 별도 요청을 줄이고 첫 프레임에서 로딩 안내를 제거한다. 작물 PNG·성장 기준·공식 SQLite 저장 정책은 변경하지 않았다.
 
 Chrome 캐시 없음·8Mbps·지연 40ms·압축 없는 로컬 정적 서버의 첫 프레임 측정은 22.1445초에서 16.3309초로 약 26% 단축됐다. 단일 로컬 비교이며 Cloudflare 압축 및 실제 학교망의 성능을 뜻하지 않는다. Chrome에서 압축 폰트 요청은 한 번이며 로딩 안내 제거와 한글 화면을 확인했다. Flutter 테스트 8개 통과(로컬 모드 전용 1개 기본 실행 시 제외), 백엔드 테스트 통과. 기존 성장 테스트는 이미지 준비 완료 후 UI 반영 한 프레임을 기다리도록 보정했다. Chrome 통합 테스트는 임시 DB로 PIN 등록·채점·성장·수확·도감·오프라인 복구·3가지 화면 크기를 통과했다.
 
-이 노트북에는 Flutter SDK가 없어 C:\Temp\growgame-flutter-sdk에 기존 CI와 같은 3.47.9를 준비했다. 한글 경로 분석 서버 오류를 피하기 위해 비어 있던 R:를 프로젝트 영문 별칭으로 사용했다. 검증 임시 DB는 삭제했고 C:\scr\grow 공식 DB와 운영 API·Tunnel은 종료 상태를 유지한다. 운영 빌드는 LOCAL_TEST_MODE 없이 실제 API 도메인으로 수행한다. GitHub push 및 Pages 배포 확인 후 상태를 갱신한다.
+이 노트북에는 Flutter SDK가 없어 C:\Temp\growgame-flutter-sdk에 기존 CI와 같은 3.47.9를 준비했다. 한글 경로 분석 서버 오류를 피하기 위해 비어 있던 R:를 프로젝트 영문 별칭으로 사용했다. 검증 임시 DB는 삭제했고 C:\scr\grow 공식 DB와 운영 API·Tunnel은 종료 상태를 유지한다. 운영 빌드는 LOCAL_TEST_MODE 없이 실제 API 도메인으로 수행한다. 검증 후 R: 별칭과 테스트용 정적 서버를 정리했다. GitHub main 커밋 6b164acc34023952025cd880eba67a08ab813a0b push 완료. GitHub Actions Flutter Web 성공, Cloudflare Pages 배포 d10456fa-1c56-4f49-b09c-62f8dd79bf8e 성공. 사용자 도메인의 HTML·압축 폰트 HTTP 200과 font/woff2 MIME, 폰트 SHA-256 일치, 운영 FontManifest의 WOFF2 참조를 확인했다. 공식 API·Tunnel은 사용자 요청대로 종료 상태이며 프론트 배포 완료가 백엔드 가동을 뜻하지 않는다.
 
 
 ## 2026-11-11 DB 저장 폴더 변경 완료

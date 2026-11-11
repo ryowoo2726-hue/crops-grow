@@ -8,6 +8,10 @@ Flutter Web 프론트와 다른 노트북에서 실행하는 Node.js + SQLite �
 - API 주소: `https://cropgrow-api.sangsangbar.com`
 - GitHub `main`과 Cloudflare Pages `cropgrow`를 연결했습니다. push하면 자동 배포됩니다. 프론트 도메인은 `cropgrow.sangsangbar.com`입니다. 백엔드 Tunnel과 API DNS도 설정했으며, 서버 노트북 커넥터 실행은 남아 있습니다.
 
+## 웹 로딩 최적화 (2026-11-11)
+
+전체 문자와 굵기를 유지하는 WOFF2 폰트, 폰트 선로딩, HTML 내 Flutter bootstrap을 적용해 운영 배포했습니다. 로컬 캐시 없음·8Mbps·지연 40ms 측정에서 첫 화면이 약 22.1초에서 16.3초로 줄었습니다. 실제 접속 시간은 네트워크에 따라 달라집니다. 현재 백엔드는 사용자 요청으로 종료되어 있으므로 게임을 운영할 때 프로젝트 폴더의 `GrowGame 시작.cmd`를 실행하세요. 공식 DB 위치는 `C:\scr\grow`입니다.
+
 ## 실행과 배포
 
 **백엔드 없이 화면·성장·수확·퀴즈만 테스트할 때:**
