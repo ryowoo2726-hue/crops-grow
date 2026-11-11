@@ -3,6 +3,7 @@ import 'package:flutter/painting.dart';
 
 const imageAssets = <String, String>{
   'crops/apple-harvest': 'assets/optimized/apple-harvest-20b9e778b4fa878e.webp',
+  'crops/apple-thumb': 'assets/optimized/apple-thumb-4d37bb48d508eb99.webp',
   'crops/apple-stage-01':
       'assets/optimized/apple-stage-01-60ee7d8a83bc5aa2.webp',
   'crops/apple-stage-02':
@@ -11,8 +12,11 @@ const imageAssets = <String, String>{
       'assets/optimized/apple-stage-03-25133f6c154efbe4.webp',
   'crops/apple-stage-04':
       'assets/optimized/apple-stage-04-85bb83d43479636e.webp',
+  'crops/apple-garden': 'assets/optimized/apple-garden-ee4cd0ad3d375956.webp',
   'crops/chili-pepper-harvest':
       'assets/optimized/chili-pepper-harvest-21ece535ab49e6f7.webp',
+  'crops/chili-pepper-thumb':
+      'assets/optimized/chili-pepper-thumb-695c39c95853c1d8.webp',
   'crops/chili-pepper-stage-01':
       'assets/optimized/chili-pepper-stage-01-4a1976feb38d2c89.webp',
   'crops/chili-pepper-stage-02':
@@ -21,7 +25,10 @@ const imageAssets = <String, String>{
       'assets/optimized/chili-pepper-stage-03-4be48907009e251a.webp',
   'crops/chili-pepper-stage-04':
       'assets/optimized/chili-pepper-stage-04-2774ed1e31558ba2.webp',
+  'crops/chili-pepper-garden':
+      'assets/optimized/chili-pepper-garden-ce413341d3cf8df0.webp',
   'crops/mango-harvest': 'assets/optimized/mango-harvest-57dc8e5aa4e2a0f6.webp',
+  'crops/mango-thumb': 'assets/optimized/mango-thumb-74671ce3deb474e7.webp',
   'crops/mango-stage-01':
       'assets/optimized/mango-stage-01-0c805d2a0191d8cb.webp',
   'crops/mango-stage-02':
@@ -30,8 +37,11 @@ const imageAssets = <String, String>{
       'assets/optimized/mango-stage-03-884e55c6d5dfad33.webp',
   'crops/mango-stage-04':
       'assets/optimized/mango-stage-04-19a005e745c754c8.webp',
+  'crops/mango-garden': 'assets/optimized/mango-garden-c502e395f64230a3.webp',
   'crops/napa-cabbage-harvest':
       'assets/optimized/napa-cabbage-harvest-06019c9868c8e85b.webp',
+  'crops/napa-cabbage-thumb':
+      'assets/optimized/napa-cabbage-thumb-622c661b865e0559.webp',
   'crops/napa-cabbage-stage-01':
       'assets/optimized/napa-cabbage-stage-01-94aec62963156100.webp',
   'crops/napa-cabbage-stage-02':
@@ -40,7 +50,10 @@ const imageAssets = <String, String>{
       'assets/optimized/napa-cabbage-stage-03-bc5c9d0a335a76b6.webp',
   'crops/napa-cabbage-stage-04':
       'assets/optimized/napa-cabbage-stage-04-4369617434000605.webp',
+  'crops/napa-cabbage-garden':
+      'assets/optimized/napa-cabbage-garden-b60c185ce6e73fb5.webp',
   'crops/peach-harvest': 'assets/optimized/peach-harvest-2073d8a4bf207ca1.webp',
+  'crops/peach-thumb': 'assets/optimized/peach-thumb-d8cdb8b65991bd5f.webp',
   'crops/peach-stage-01':
       'assets/optimized/peach-stage-01-aedd5b85e7a86892.webp',
   'crops/peach-stage-02':
@@ -49,8 +62,11 @@ const imageAssets = <String, String>{
       'assets/optimized/peach-stage-03-577612f25d66f473.webp',
   'crops/peach-stage-04':
       'assets/optimized/peach-stage-04-a9daddd8cf135dde.webp',
+  'crops/peach-garden': 'assets/optimized/peach-garden-f7faf421a6bdc4c8.webp',
   'crops/persimmon-harvest':
       'assets/optimized/persimmon-harvest-f7fa5f592e27db80.webp',
+  'crops/persimmon-thumb':
+      'assets/optimized/persimmon-thumb-e5bb4aa70c680718.webp',
   'crops/persimmon-stage-01':
       'assets/optimized/persimmon-stage-01-ada95d5a56eb8e34.webp',
   'crops/persimmon-stage-02':
@@ -59,8 +75,11 @@ const imageAssets = <String, String>{
       'assets/optimized/persimmon-stage-03-60a2ebe4b4b1951b.webp',
   'crops/persimmon-stage-04':
       'assets/optimized/persimmon-stage-04-29fccc6faa431519.webp',
+  'crops/persimmon-garden':
+      'assets/optimized/persimmon-garden-13bf6723b3015f49.webp',
   'crops/radish-harvest':
       'assets/optimized/radish-harvest-7f74e5dc9390a39a.webp',
+  'crops/radish-thumb': 'assets/optimized/radish-thumb-32925c9a5ed5b03b.webp',
   'crops/radish-stage-01':
       'assets/optimized/radish-stage-01-5f1b856083197a7b.webp',
   'crops/radish-stage-02':
@@ -69,13 +88,17 @@ const imageAssets = <String, String>{
       'assets/optimized/radish-stage-03-382d24589ac3f146.webp',
   'crops/radish-stage-04':
       'assets/optimized/radish-stage-04-6e1977f7b2850732.webp',
+  'crops/radish-garden': 'assets/optimized/radish-garden-20b0437b9903af2f.webp',
   'crops/rice-harvest': 'assets/optimized/rice-harvest-d815cfe45f215190.webp',
+  'crops/rice-thumb': 'assets/optimized/rice-thumb-21b4a21ffc6b7934.webp',
   'crops/rice-stage-01': 'assets/optimized/rice-stage-01-ca04351fc02b9d3f.webp',
   'crops/rice-stage-02': 'assets/optimized/rice-stage-02-70e71208effcf406.webp',
   'crops/rice-stage-03': 'assets/optimized/rice-stage-03-aa96bac97b36ed66.webp',
   'crops/rice-stage-04': 'assets/optimized/rice-stage-04-4e7ceeff3b6ced8c.webp',
+  'crops/rice-garden': 'assets/optimized/rice-garden-c7371d382e7d6da5.webp',
   'crops/soybean-harvest':
       'assets/optimized/soybean-harvest-69d38fd610c46717.webp',
+  'crops/soybean-thumb': 'assets/optimized/soybean-thumb-0823a2911d378a25.webp',
   'crops/soybean-stage-01':
       'assets/optimized/soybean-stage-01-52314df6499263c3.webp',
   'crops/soybean-stage-02':
@@ -84,8 +107,12 @@ const imageAssets = <String, String>{
       'assets/optimized/soybean-stage-03-0ac9f74cbdbeeeda.webp',
   'crops/soybean-stage-04':
       'assets/optimized/soybean-stage-04-05a597f30d86de76.webp',
+  'crops/soybean-garden':
+      'assets/optimized/soybean-garden-4a86b7d4c00d491c.webp',
   'crops/sweet-potato-harvest':
       'assets/optimized/sweet-potato-harvest-3a74f5ffbee4b87d.webp',
+  'crops/sweet-potato-thumb':
+      'assets/optimized/sweet-potato-thumb-7e030be51d56dc1d.webp',
   'crops/sweet-potato-stage-01':
       'assets/optimized/sweet-potato-stage-01-eaf0fa9602f07d70.webp',
   'crops/sweet-potato-stage-02':
@@ -94,8 +121,12 @@ const imageAssets = <String, String>{
       'assets/optimized/sweet-potato-stage-03-dc448b50c9753725.webp',
   'crops/sweet-potato-stage-04':
       'assets/optimized/sweet-potato-stage-04-7c1d96c33bf02b6a.webp',
+  'crops/sweet-potato-garden':
+      'assets/optimized/sweet-potato-garden-20de791effd3ed63.webp',
   'crops/watermelon-harvest':
       'assets/optimized/watermelon-harvest-c43003871c56c41a.webp',
+  'crops/watermelon-thumb':
+      'assets/optimized/watermelon-thumb-98735f6175357e13.webp',
   'crops/watermelon-stage-01':
       'assets/optimized/watermelon-stage-01-6bc7c6a90cb0bd6d.webp',
   'crops/watermelon-stage-02':
@@ -104,17 +135,19 @@ const imageAssets = <String, String>{
       'assets/optimized/watermelon-stage-03-b179d54b65061172.webp',
   'crops/watermelon-stage-04':
       'assets/optimized/watermelon-stage-04-0cc37030f4869dee.webp',
+  'crops/watermelon-garden':
+      'assets/optimized/watermelon-garden-77508feb8bc78042.webp',
   'environment/bg-school-farm':
-      'assets/optimized/bg-school-farm-dde0af4be878fb3e.webp',
+      'assets/optimized/bg-school-farm-228a3f97682abaac.webp',
   'environment/field-base': 'assets/optimized/field-base-ffef5d5f662594bb.webp',
   'environment/field-dry-base':
       'assets/optimized/field-dry-base-af4ca6f4a54e5509.webp',
   'characters/drop-celebrate':
-      'assets/optimized/drop-celebrate-fb4b053c03de13da.webp',
-  'characters/drop-cheer': 'assets/optimized/drop-cheer-121de3349e8b90c9.webp',
+      'assets/optimized/drop-celebrate-c32805fd3e686428.webp',
+  'characters/drop-cheer': 'assets/optimized/drop-cheer-6433ca4cffe3b772.webp',
   'characters/drop-default':
-      'assets/optimized/drop-default-12475f93a15567a6.webp',
-  'characters/drop-happy': 'assets/optimized/drop-happy-19a4c47c37eac308.webp',
+      'assets/optimized/drop-default-cd120f0ac23f2ba6.webp',
+  'characters/drop-happy': 'assets/optimized/drop-happy-848f8e68cad00ad0.webp',
 };
 
 ImageProvider<Object> gameImage(String name, {int? width}) =>

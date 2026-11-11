@@ -1,13 +1,15 @@
 """Build deployable WebP copies; keep source PNGs unchanged. Requires Pillow."""
 import hashlib
 import io
+import re
 from pathlib import Path
-from PIL import Image
+from PIL import Image, ImageChops, ImageStat
 
 root = Path(__file__).resolve().parents[1]
 output = root / 'assets' / 'optimized'
 output.mkdir(exist_ok=True)
 entries = []
+startup_assets = {}
 original_bytes = optimized_bytes = 0
 for group in ('crops', 'environment', 'characters'):
     for source in sorted((root / 'assets' / group).glob('*.png')):
@@ -18,15 +20,40 @@ for group in ('crops', 'environment', 'characters'):
         elif group == 'characters':
             image.thumbnail((256, 256), Image.Resampling.LANCZOS)
         data = io.BytesIO()
-        image.save(data, format='WEBP', lossless=True, exact=True, method=6)
+        background = logical == 'environment/bg-school-farm'
+        image.save(data, format='WEBP', lossless=not background, quality=90 if background else 80,
+                   exact=True, method=6)
         content = data.getvalue()
         digest = hashlib.sha256(content).hexdigest()[:16]
         name = f'{source.stem}-{digest}.webp'
         target = output / name
         target.write_bytes(content)
         decoded = Image.open(target).convert('RGBA')
-        assert decoded.size == image.size and decoded.tobytes() == image.tobytes(), source
+        assert decoded.size == image.size, source
+        if background:
+            assert decoded.getchannel('A').tobytes() == image.getchannel('A').tobytes()
+            error = ImageStat.Stat(ImageChops.difference(decoded.convert('RGB'), image.convert('RGB'))).mean
+            assert max(error) < 3, (source, error)
+        else:
+            assert decoded.tobytes() == image.tobytes(), source
         entries.append(f"  '{logical}': 'assets/optimized/{name}',")
+        if source.stem in ('bg-school-farm', 'drop-default'):
+            startup_assets[source.stem] = name
+        # Small collection/garden cells should not download the full popup image.
+        if source.stem.endswith('-harvest') or source.stem.endswith('-stage-04'):
+            thumb = image.copy()
+            thumb.thumbnail((256, 256), Image.Resampling.LANCZOS)
+            buffer = io.BytesIO()
+            thumb.save(buffer, format='WEBP', lossless=True, exact=True, method=6)
+            payload = buffer.getvalue()
+            thumb_hash = hashlib.sha256(payload).hexdigest()[:16]
+            suffix = '-thumb' if source.stem.endswith('-harvest') else '-garden'
+            crop_id = source.stem.rsplit('-', 1)[0] if suffix == '-thumb' else source.stem[:-9]
+            thumb_name = f'{crop_id}{suffix}-{thumb_hash}.webp'
+            (output / thumb_name).write_bytes(payload)
+            assert Image.open(output / thumb_name).convert('RGBA').tobytes() == thumb.tobytes()
+            entries.append(f"  '{group}/{crop_id}{suffix}': 'assets/optimized/{thumb_name}',")
+            optimized_bytes += len(payload)
         original_bytes += source.stat().st_size
         optimized_bytes += len(content)
 
@@ -41,4 +68,9 @@ ImageProvider<Object> gameImage(String name, {int? width}) =>
     ResizeImage.resizeIfNeeded(width, null, AssetImage(imageAssets[name]!));
 """
 (root / 'lib' / 'image_assets.dart').write_text(dart, encoding='utf-8')
-print(f'{len(entries)} images: {original_bytes:,} -> {optimized_bytes:,} bytes; decoded pixels verified')
+html = root / 'web/index.html'
+text = html.read_text(encoding='utf-8')
+for stem, filename in startup_assets.items():
+    text = re.sub(stem + r'-[a-f0-9]{16}\.webp', filename, text)
+html.write_text(text, encoding='utf-8')
+print(f'{len(entries)} images: {original_bytes:,} source -> {optimized_bytes:,} runtime bytes; crop pixels/alpha verified, background RGB error < 3/255')

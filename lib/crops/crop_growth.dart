@@ -28,11 +28,13 @@ class CropGrowth extends StatefulWidget {
     required this.cropId,
     required this.name,
     required this.progress,
+    this.animate = true,
     this.onReady,
   });
   final String cropId;
   final String name;
   final double progress;
+  final bool animate;
   final VoidCallback? onReady;
   @override
   State<CropGrowth> createState() => _CropGrowthState();
@@ -65,13 +67,10 @@ class _CropGrowthState extends State<CropGrowth> {
       failed = false;
     });
     Object? failure;
+    final pose = growthPose(widget.progress);
+    final visible = {pose.from, pose.to};
     await Future.wait([
-      precacheImage(
-        gameImage('crops/${widget.cropId}-harvest', width: 512),
-        context,
-        onError: (_, _) {},
-      ),
-      for (var i = 0; i < 4; i++)
+      for (final i in visible)
         precacheImage(
           AssetImage(stagePath(i)),
           context,
@@ -86,6 +85,22 @@ class _CropGrowthState extends State<CropGrowth> {
       failed = failure != null;
     });
     if (ready) widget.onReady?.call();
+    if (!ready) return;
+    // Later stages and the popup must not hold the visible crop behind a spinner.
+    for (final i in {0, 1, 2, 3}.difference(visible)) {
+      if (!mounted || request != generation) return;
+      await precacheImage(
+        AssetImage(stagePath(i)),
+        context,
+        onError: (_, _) {},
+      );
+    }
+    if (!mounted || request != generation) return;
+    await precacheImage(
+      gameImage('crops/${widget.cropId}-harvest', width: 512),
+      context,
+      onError: (_, _) {},
+    );
   }
 
   @override
@@ -104,7 +119,7 @@ class _CropGrowthState extends State<CropGrowth> {
       );
     return TweenAnimationBuilder<double>(
       tween: Tween(end: widget.progress),
-      duration: MediaQuery.disableAnimationsOf(context)
+      duration: !widget.animate || MediaQuery.disableAnimationsOf(context)
           ? Duration.zero
           : cropGrowthDuration,
       builder: (_, progress, _) {

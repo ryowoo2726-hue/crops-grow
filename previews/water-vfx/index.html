@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="ko">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>물방울의 작은 정원 · 효과 미리보기</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f3f5ee;color:#253b30;font-family:system-ui,"Malgun Gothic",sans-serif}main{max-width:1000px;margin:auto;padding:40px 24px}header{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:24px}.eyebrow{font-size:11px;letter-spacing:2px;color:#738575;font-weight:700}h1{font-size:28px;letter-spacing:-1.2px;margin:8px 0}header p{font-size:13px;color:#6b7d6e;margin:0}.badge{border:1px solid #ccd8c5;padding:8px 12px;border-radius:30px;font-size:11px;white-space:nowrap}.layout{display:grid;grid-template-columns:minmax(0,1fr) 260px;gap:20px}.stage{background:#eaf1de;border:1px solid #d5dfcb;border-radius:24px;overflow:hidden;position:relative;box-shadow:0 12px 40px #263c3010}canvas{width:100%;height:auto;display:block;aspect-ratio:620/620}.caption{position:absolute;top:22px;left:24px;font-size:12px;color:#657954;pointer-events:none}.caption strong{display:block;font-size:18px;color:#314b36;margin-top:5px}.aside{display:flex;flex-direction:column;gap:14px}.card{background:#fffdf7;border:1px solid #e0e5d7;border-radius:20px;padding:20px}h2{font-size:15px;margin:0 0 12px}.card p{font-size:13px;color:#73806e;line-height:1.7;margin:12px 0 0}button{font:inherit;cursor:pointer;border:0}button:disabled{cursor:wait;opacity:.45}.effect{width:100%;padding:14px;text-align:left;border-radius:13px;font-weight:650;font-size:14px;margin-top:8px}.water{background:#def2f9;color:#236c8b}.food{background:#eef3cf;color:#647326}.small{font-size:11px;display:block;font-weight:400;margin-top:5px;opacity:.8}.controls{display:flex;gap:7px;margin-bottom:15px}.controls button{flex:1;border-radius:9px;background:#eef0e7;color:#465b43;padding:10px 4px;font-size:12px}label{font-size:12px;display:block;color:#63735f;margin:12px 0}input[type=range]{width:100%;accent-color:#78934c}select{font:inherit;font-size:12px;border:1px solid #d8dfce;background:white;border-radius:8px;padding:5px;float:right}#status{min-height:42px;font-size:12px;line-height:1.65;color:#627357}footer{font-size:11px;color:#7d8876;margin-top:20px;line-height:1.8}#error{color:#a04130}button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid #5b9bc0;outline-offset:3px}@media(max-width:760px){main{padding:22px 14px}header{align-items:flex-start}h1{font-size:23px}.layout{grid-template-columns:1fr}.aside{display:grid;grid-template-columns:1fr 1fr}.card{padding:15px}.badge{font-size:10px;padding:6px 9px}}@media(max-width:430px){.aside{grid-template-columns:1fr}header p{max-width:230px}.badge{display:none}}
+</style>
+<main>
+  <header><div><div class="eyebrow">GROWGAME / MOTION STUDY 01</div><h1>물방울의 작은 정원</h1><p>한 번의 물주기, 한 줌의 영양분. 작물에게 닿는 순간.</p></div><span class="badge">독립 미리보기 · 초기 버전</span></header>
+  <div class="layout">
+    <section class="stage" aria-label="애니메이션 미리보기"><div class="caption">오늘도 쑥쑥 자라는 중<strong id="scene-title">물방울이 기다리고 있어요</strong></div><canvas width="620" height="620" aria-label="물방울이 작물로 뛰어들고 영양분이 흡수되는 장면"></canvas></section>
+    <aside class="aside">
+      <section class="card"><h2>어떤 순간을 볼까요?</h2><button class="effect water" id="water" disabled>💧 물주기<span class="small">웅크리기 → 점프 → 물방울 퍼짐</span></button><button class="effect food" id="food" disabled>✦ 미션·퀴즈 완료<span class="small">게이지 → 영양분 알갱이 → 뿌리 흡수</span></button><p id="status" role="status" aria-live="polite">에셋을 준비하고 있어요.</p><p id="error" role="alert"></p></section>
+      <section class="card"><h2>움직임 살펴보기</h2><div class="controls"><button id="pause" disabled>일시정지</button><button id="reset" disabled>처음으로</button></div><label>재생 속도 <select id="speed"><option value="0.5">0.5배</option><option value="1" selected>1배</option><option value="1.5">1.5배</option></select></label><label for="seek">장면 이동 <span id="time">0.0 / 3.2초</span></label><input id="seek" type="range" min="0" max="3200" value="0" aria-label="애니메이션 시점 이동"><p>슬라이더를 움직이면 물이 퍼지거나 알갱이가 날아가는 순간을 멈춰 볼 수 있어요.</p></section>
+    </aside>
+  </div>
+  <footer>기존 물방울·작물 에셋을 사용한 연출 시안입니다. 수치는 시연용이며 재생할 때마다 초기화됩니다.<br>실제 게임 화면과 연결되지 않으며, 서버 접속·학생 기록 저장은 하지 않습니다.</footer>
+</main>
+<script>
+'use strict';
+const $=id=>document.getElementById(id);
+const canvas=document.querySelector('canvas'),ctx=canvas.getContext('2d');
+const images={};
+const assets={drop:'drop-default-12475f93a15567a6.webp',happy:'drop-happy-19a4c47c37eac308.webp',crop:'soybean-stage-02-fa30d66d8f85e8b6.webp'};
+const duration=3200,root={x:344,y:405},home={x:115,y:440};
+let mode='water',time=0,playing=false,ready=false,last=0,frame=0;
+const clamp=x=>Math.max(0,Math.min(1,x));
+const phase=(t,a,b)=>clamp((t-a)/(b-a));
+const ease=x=>x*x*(3-2*x);
+function ellipse(x,y,rx,ry,color){ctx.fillStyle=color;ctx.beginPath();ctx.ellipse(x,y,rx,ry,0,0,Math.PI*2);ctx.fill()}
+function line(x,y,x2,y2,color,width){ctx.strokeStyle=color;ctx.lineWidth=width;ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(x2,y2);ctx.stroke()}
+function text(s,x,y,size,color,align='left'){ctx.font=`600 ${size}px system-ui,"Malgun Gothic",sans-serif`;ctx.fillStyle=color;ctx.textAlign=align;ctx.fillText(s,x,y)}
+function sprite(img,x,y,size,sx=1,sy=1,rotation=0,alpha=1){ctx.save();ctx.translate(x,y);ctx.rotate(rotation);ctx.scale(sx,sy);ctx.globalAlpha=alpha;ctx.drawImage(img,-size/2,-size/2,size,size);ctx.restore()}
+function glow(x,y,r,color){const g=ctx.createRadialGradient(x,y,0,x,y,r);g.addColorStop(0,color);g.addColorStop(1,'transparent');ellipse(x,y,r,r,g)}
+function sparkle(x,y,r,alpha,color='#fff7b0'){ctx.save();ctx.globalAlpha=alpha;ctx.fillStyle=color;ctx.beginPath();ctx.moveTo(x,y-r);ctx.quadraticCurveTo(x+1,y-1,x+r,y);ctx.quadraticCurveTo(x+1,y+1,x,y+r);ctx.quadraticCurveTo(x-1,y+1,x-r,y);ctx.quadraticCurveTo(x-1,y-1,x,y-r);ctx.fill();ctx.restore()}
+function absorb(t){return mode==='water'?ease(phase(t,1630,2500)):ease(phase(t,1350,2650))}
+function backdrop(t){
+  ctx.clearRect(0,0,620,620);
+  const sky=ctx.createLinearGradient(0,0,0,620);sky.addColorStop(0,'#f4f7e8');sky.addColorStop(1,'#dce8c5');ctx.fillStyle=sky;ctx.fillRect(0,0,620,620);
+  ellipse(520,104,43,43,'#fff9d8');ellipse(70,342,240,110,'#e0e9d0');ellipse(530,345,260,105,'#e3ebd3');
+  for(let i=0;i<20;i++){const x=25+i*31,y=390+(i%3)*20;line(x,y,x-3,y-7,'#c1d1ab',2);line(x,y,x+4,y-5,'#c1d1ab',2)}
+  ellipse(root.x,428,173,38,'#b6c49650');ellipse(root.x,416,153,30,'#9f7955');ellipse(root.x,409,153,25,'#b9926b');
+  for(let i=0;i<27;i++)ellipse(205+(i*47)%280,404+(i*11)%22,2.2,1.2,'#8c684c60');
+  const a=absorb(t),sway=Math.sin(t*.023)*Math.sin(a*Math.PI)*.025;
+  if(a>0&&a<1)glow(root.x,root.y-12,100,mode==='water'?'#83d9ed50':'#edf9a588');
+  ctx.save();ctx.translate(root.x,root.y);ctx.rotate(sway);ctx.scale(1+a*.035,1+a*.035);ctx.drawImage(images.crop,-155,-254,310,310);ctx.restore();
+  const received=mode==='water'?50:30,progress=20+received*a;
+  ctx.fillStyle='#fffdf4';ctx.beginPath();ctx.roundRect(185,508,300,61,18);ctx.fill();
+  text('성장',203,531,12,'#6b795b');text(`${Math.round(progress)}%`,466,531,12,'#577148','right');
+  ctx.fillStyle='#e5ebd9';ctx.beginPath();ctx.roundRect(203,542,264,8,4);ctx.fill();ctx.fillStyle='#91ac66';ctx.beginPath();ctx.roundRect(203,542,264*progress/100,8,4);ctx.fill();
+  if(a>0&&a<1){text(`+${received}%`,root.x,175-20*a,20,mode==='water'?'#3a95b2':'#8b9e36','center');for(let i=0;i<7;i++)sparkle(root.x+Math.sin(i*2.4)*90,root.y-70-i*26-a*20,5,Math.sin(a*Math.PI),'#f9ffe1')}
+}
+function water(t){
+  const crouch=Math.sin(phase(t,0,350)*Math.PI/2),jump=ease(phase(t,350,1500)),hit=phase(t,1500,2400),returning=ease(phase(t,2450,3000));
+  ellipse(home.x,home.y+35,33*(1-jump*.5),8*(1-jump*.4),'#567e7322');
+  if(t<1500){const x=home.x+(root.x-home.x)*jump,y=home.y+(root.y-home.y)*jump-Math.sin(jump*Math.PI)*178;
+    if(jump>0){for(let i=1;i<=5;i++){const q=Math.max(0,jump-i*.032);ellipse(home.x+(root.x-home.x)*q,home.y+(root.y-home.y)*q-Math.sin(q*Math.PI)*178,4-i*.45,5-i*.5,`rgba(100,187,220,${.23-i*.03})`)}}
+    sprite(images.drop,x,y,112,t<350?1+crouch*.18:1-.12*Math.sin(jump*Math.PI),t<350?1-crouch*.22:1+.16*Math.sin(jump*Math.PI),jump*.45);
+  }
+  if(t>=1500&&t<2450){
+    glow(root.x,root.y,75*(1-hit)+15,`rgba(113,210,239,${.5*(1-hit)})`);
+    for(let j=0;j<3;j++){const q=phase(t,1500+j*110,2400);if(q>0&&q<1){ctx.strokeStyle=`rgba(79,174,211,${.65*(1-q)})`;ctx.lineWidth=3*(1-q)+.5;ctx.beginPath();ctx.ellipse(root.x,root.y+7,15+q*116,4+q*23,0,0,Math.PI*2);ctx.stroke()}}
+    for(let i=0;i<22;i++){const angle=Math.PI*2*i/22,spread=hit*(70+(i%4)*18),x=root.x+Math.cos(angle)*spread,y=root.y+Math.sin(angle)*spread*.4-Math.sin(hit*Math.PI)*(45+(i%5)*12);ctx.save();ctx.globalAlpha=1-hit;ctx.translate(x,y);ctx.rotate(angle+hit*2);ellipse(0,0,(3+i%3)*(1-hit*.6),(6+i%4)*(1-hit*.6),i%3?'#68bddd':'#c4f3ff');ctx.restore()}
+  }
+  if(t>=2450)sprite(images.happy,home.x,home.y-8*Math.sin(returning*Math.PI),112,returning,returning,0,returning);
+}
+function food(t){
+  sprite(t>2200?images.happy:images.drop,home.x,home.y,112);
+  const dissolve=phase(t,350,900);
+  ctx.save();ctx.globalAlpha=1-dissolve;ctx.fillStyle='#f9f9d9';ctx.beginPath();ctx.roundRect(171,112,278,50,15);ctx.fill();text('이번에 얻은 영양분',189,134,11,'#7d8d45');ctx.fillStyle='#bcc963';ctx.beginPath();ctx.roundRect(189,144,241,5,3);ctx.fill();ctx.restore();
+  for(let i=0;i<18;i++){
+    const birth=450+i*29,p=phase(t,birth,birth+1400);if(t<birth||p>=1)continue;
+    const q=ease(p),sx=192+i*13.2,sy=146,cx=sx+(i%2?130:-95),cy=205+(i%4)*22;
+    const x=(1-q)**2*sx+2*(1-q)*q*cx+q*q*root.x,y=(1-q)**2*sy+2*(1-q)*q*cy+q*q*root.y;
+    const alpha=Math.min(1,p*12,(1-p)*9),r=(4+i%3)*Math.min(1,p*10);
+    ctx.save();ctx.globalAlpha=alpha;glow(x,y,r*4,'#e7ed8b99');ellipse(x,y,r,r,i%3?'#d7d967':'#a7c772');ellipse(x-r*.24,y-r*.3,r*.28,r*.22,'#fffce0');ctx.restore();
+    if(p>.5)sparkle(x-7,y-13,3,alpha*.6);
+  }
+  const a=absorb(t);if(a>0&&a<1){glow(root.x,root.y,55,'#e2ef8077');for(let i=0;i<5;i++)sparkle(root.x+Math.sin(i*2)*30,root.y-20-i*9,5,Math.sin(a*Math.PI))}
+}
+function render(){
+  if(!ready)return;backdrop(time);if(mode==='water')water(time);else food(time);
+  $('seek').value=time;$('time').textContent=`${(time/1000).toFixed(1)} / 3.2초`;
+  $('pause').textContent=playing?'일시정지':'재생';
+  const title=mode==='water'?(time<350?'폴짝, 힘을 모아요':time<1500?'작물에게 달려가요':time<2450?'촉촉하게 퍼져요':'물방울이 돌아왔어요'):(time<450?'잘했어요! 영양분을 받았어요':time<2300?'영양분이 작물에게 가요':'뿌리까지 쏙, 한 뼘 더 자랐어요');
+  $('scene-title').textContent=title;
+}
+function tick(now){if(!playing)return;const delta=last?Math.min(now-last,80):0;last=now;time=Math.min(duration,time+delta*Number($('speed').value));if(time===duration){playing=false;$('status').textContent='연출이 끝났어요. 다른 효과를 눌러 다시 볼 수 있어요.'}render();if(playing)frame=requestAnimationFrame(tick)}
+function play(){if(!ready)return;cancelAnimationFrame(frame);if(time>=duration)time=0;playing=true;last=0;render();frame=requestAnimationFrame(tick)}
+function stop(){playing=false;cancelAnimationFrame(frame);render()}
+function start(next){mode=next;time=0;$('status').textContent=mode==='water'?'물방울이 뛰어들면 물결과 작은 물방울이 퍼져요.':'보상 게이지가 알갱이로 바뀌어 뿌리에 흡수돼요.';play()}
+$('water').onclick=()=>start('water');$('food').onclick=()=>start('food');
+$('pause').onclick=()=>playing?stop():play();$('reset').onclick=()=>{time=0;stop();$('status').textContent='처음 장면이에요. 재생하거나 효과를 선택하세요.'};
+$('seek').oninput=()=>{time=Number($('seek').value);stop()};
+document.addEventListener('visibilitychange',()=>{if(document.hidden)stop()});
+Promise.all(Object.entries(assets).map(([key,name])=>new Promise((resolve,reject)=>{const img=new Image();img.onload=()=>{images[key]=img;resolve()};img.onerror=()=>reject(new Error(name));img.src='../../assets/optimized/'+name}))).then(()=>{
+  ready=true;for(const id of ['water','food','pause','reset'])$(id).disabled=false;
+  $('status').textContent='두 효과 중 하나를 눌러 보세요. 언제든 다시 재생할 수 있어요.';render();
+}).catch(()=>{$('error').textContent='에셋을 불러오지 못했어요. 프로젝트 안의 previews/water-vfx/index.html 위치에서 열어 주세요.'});
+</script>
+</html>

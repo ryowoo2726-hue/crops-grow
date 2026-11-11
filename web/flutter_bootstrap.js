@@ -1,4 +1,7 @@
 {{flutter_js}}
 {{flutter_build_config}}
 
-_flutter.loader.load({config: {canvasKitBaseUrl: undefined}});
+_flutter.loader.load({config: {
+  canvasKitBaseUrl: undefined,
+  forceSingleThreadedSkwasm: true
+}});

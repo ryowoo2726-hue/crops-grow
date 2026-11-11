@@ -10,6 +10,10 @@ Flutter Web 프론트와 현재 서버 노트북에서 실행하는 Node.js + SQ
 
 ## 웹 로딩 최적화 (2026-11-11)
 
+**최신 사용자 지시로 Git 업로드를 승인받아 배포를 진행 중입니다.** 물방울 점프·물 튀김과 미션 영양분 흡수 효과를 실제 게임에 연결했습니다. 전체 최적화는 WebAssembly + 기존 JS 대체 빌드, 배경 조기 표시·용량 축소, 한글 우선 폰트/한자 후속 로딩, 현재 성장 단계 우선 표시, 도감·정원용 256px 이미지, 폰트·엔진·앱의 내용별 캐시를 포함합니다. 원본 PNG와 공식 SQLite·채점 정책은 유지합니다. 배포 결과는 [인수인계](docs/PROJECT_HANDOFF.md) 최상단을 확인하세요.
+
+8Mbps·40ms 로컬 Chrome 측정(각 3회 중앙값)에서 첫 화면 13.38 → 8.41초, 현재 작물 준비 14.57 → 8.68초, 배경 전송 완료 14.79 → 0.25초, 재접속 1.00 → 0.33초입니다. 실제 학교망 속도를 보장하는 수치는 아닙니다.
+
 전체 문자와 굵기를 유지하는 WOFF2 폰트, 폰트 선로딩, HTML 내 Flutter bootstrap을 적용해 운영 배포했습니다. 로컬 캐시 없음·8Mbps·지연 40ms 측정에서 첫 화면이 약 22.1초에서 16.3초로 줄었습니다. 실제 접속 시간은 네트워크에 따라 달라집니다. 현재 백엔드는 사용자 요청으로 종료되어 있으므로 게임을 운영할 때 프로젝트 폴더의 `GrowGame 시작.cmd`를 실행하세요. 공식 DB 위치는 `C:\scr\grow`입니다.
 
 사진·화면 전환 최적화: 화면용 이미지 합계 약 60% 감소, 현재 작물의 수확 이미지 선준비, 작물 선택 이미지 백그라운드 준비, 성장 대기 0.7초를 적용했습니다. 앱 코드·엔진·폰트·이미지는 내용별 주소와 장기 브라우저 캐시를 사용합니다. GitHub/Cloudflare 빌드는 마무리 스크립트를 자동 실행합니다.
@@ -34,7 +38,7 @@ flutter run -d chrome --web-port=4180 --dart-define=LOCAL_TEST_MODE=true
 
 ```powershell
 flutter pub get
-flutter build web --no-web-resources-cdn
+flutter build web --wasm --no-web-resources-cdn
 node scripts/finalize-web.cjs
 node server.cjs
 ```
@@ -42,7 +46,7 @@ node server.cjs
 로컬 연결 검증 때만 다음처럼 API 주소를 덮어씁니다.
 
 ```powershell
-flutter build web --no-web-resources-cdn --dart-define=API_BASE_URL=http://127.0.0.1:8787
+flutter build web --wasm --no-web-resources-cdn --dart-define=API_BASE_URL=http://127.0.0.1:8787
 node scripts/finalize-web.cjs
 ```
 
@@ -70,6 +74,20 @@ node backend/manage.cjs import-special backend/content/특별미션.json
 팝업 디자인과 진행 UI는 `lib/missions/quiz/popup.dart`, `lib/missions/special/popup.dart`에서 수정합니다. [미션 편집 안내](lib/missions/README.md)를 참고하세요.
 
 ## 검증
+
+서버 없는 효과·화면 검증과 로딩 측정은 별도 로컬 빌드를 사용합니다. 아래 로컬 빌드는 배포하지 않습니다.
+
+```powershell
+flutter build web --wasm --no-web-resources-cdn --dart-define=LOCAL_TEST_MODE=true
+node scripts/finalize-web.cjs
+$env:PORT='4180'
+node server.cjs
+# 위 정적 서버를 유지하고 다른 터미널에서 실행
+node tests/flutter.local-vfx.browser.test.cjs
+node tests/loading.browser.cjs after
+```
+
+측정은 Chrome, 390×844, 8Mbps·40ms 조건으로 첫 접속/재접속 각각 3회입니다. 결과와 스크린샷은 OS 임시 폴더에 저장합니다. 이때 API·Tunnel·학생 DB를 시작하지 않습니다. `WEB_ROOT` 환경변수로 다른 빌드 폴더도 검증할 수 있습니다. 운영 빌드를 만들 때는 `LOCAL_TEST_MODE` 없이 다시 빌드합니다.
 
 ```powershell
 node --test backend/backend.test.cjs

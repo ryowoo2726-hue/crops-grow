@@ -7,11 +7,22 @@
   <meta name="theme-color" content="#284b39">
   <meta name="description" content="마석중학교 농작물 키우기">
   <title>마석중학교 농작물 키우기</title>
-  <link rel="preload" href="assets/assets/fonts/NotoSansKR-fc0b385edc9df480.woff2" as="fetch" type="font/woff2" crossorigin>
-  <style>html,body{margin:0;background:#263c30;height:100%;}#loading{color:#fff9e9;font:16px sans-serif;display:grid;place-items:center;height:100%;}</style>
+  <link rel="preload" href="assets/assets/fonts/NotoSansKR-core-92122f52e6362b3f.woff2" as="fetch" type="font/woff2" crossorigin>
+  <link rel="preload" href="assets/FontManifest.json" as="fetch" crossorigin>
+  <link rel="preload" href="assets/AssetManifest.bin.json" as="fetch" crossorigin>
+  <link rel="preload" href="assets/assets/optimized/drop-default-cd120f0ac23f2ba6.webp" as="fetch" crossorigin>
+  <style>
+    html,body{margin:0;background:#263c30;height:100%;}
+    #loading{position:fixed;inset:0;display:grid;place-items:center;}
+    #loading::before{content:"";position:absolute;inset:0;margin:auto;width:min(100vw,calc(100vh * 390 / 694));background:#eef0d3 url('assets/assets/optimized/bg-school-farm-228a3f97682abaac.webp') center/cover no-repeat;}
+    #loading div{position:relative;color:#284b39;font:600 16px sans-serif;background:#fff9e9ef;border-radius:24px;padding:24px 30px;text-align:center;box-shadow:0 8px 40px #284b3922;}
+    #loading small{display:block;font-size:12px;font-weight:400;margin-top:10px;color:#66795e;}
+    @media(min-width:601px) and (min-height:601px){#loading::before{width:min(100vw,calc(100vh * 390 / 844));}}
+    @media(prefers-reduced-motion:no-preference){#loading div{animation:breathe 1.4s ease-in-out infinite alternate;}@keyframes breathe{to{opacity:.7;transform:translateY(-3px)}}}
+  </style>
 </head>
 <body>
-  <div id="loading" role="status">텃밭을 준비하고 있어요…</div>
+  <div id="loading" role="status"><div>텃밭을 준비하고 있어요…<small>물방울과 작물을 데려오는 중이에요</small></div></div>
   <script>
     window.addEventListener('flutter-first-frame', () => {
       document.getElementById('loading')?.remove();

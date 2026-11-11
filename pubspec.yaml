@@ -14,7 +14,8 @@ flutter:
   uses-material-design: true
   assets:
     - assets/optimized/
+    - assets/fonts/NotoSansKR-extended-ed5ec63c6ddc7fc9.woff2
   fonts:
     - family: NotoSansKR
       fonts:
-        - asset: assets/fonts/NotoSansKR-fc0b385edc9df480.woff2
+        - asset: assets/fonts/NotoSansKR-core-92122f52e6362b3f.woff2

@@ -5,7 +5,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'backend/api.dart';
 import 'crops/crop_growth.dart';
+import 'crops/reward_effect.dart';
 import 'game.dart';
+import 'font_assets.dart';
 import 'image_assets.dart';
 import 'local_test_data.dart';
 import 'missions.dart';
@@ -21,10 +23,12 @@ const green = Color(0xff5f9e59);
 ThemeData gameTheme() => ThemeData(
   useMaterial3: true,
   fontFamily: 'NotoSansKR',
+  fontFamilyFallback: const ['NotoSansKRExtended'],
   colorScheme: ColorScheme.fromSeed(seedColor: green, surface: cream),
   scaffoldBackgroundColor: Colors.transparent,
   textTheme: ThemeData.light().textTheme.apply(
     fontFamily: 'NotoSansKR',
+    fontFamilyFallback: const ['NotoSansKRExtended'],
     bodyColor: ink,
     displayColor: ink,
   ),
@@ -111,11 +115,30 @@ class FarmGame extends StatefulWidget {
   State<FarmGame> createState() => _FarmGameState();
 }
 
-class _FarmGameState extends State<FarmGame> with WidgetsBindingObserver {
+class _FarmGameState extends State<FarmGame>
+    with WidgetsBindingObserver, SingleTickerProviderStateMixin {
   List<Map<String, dynamic>> records = [];
   Map<String, dynamic>? record;
   int grade = 0, classNo = 0, number = 0, tab = 0, page = 0;
   bool busy = false, storageBroken = false;
+  late final rewardController = AnimationController(
+    vsync: this,
+    duration: rewardEffectDuration,
+  );
+  final farmKey = GlobalKey(), plotKey = GlobalKey();
+  final gaugeKey = GlobalKey(), mascotKey = GlobalKey();
+  String? rewardKind;
+  double rewardFrom = 0;
+  ({Offset home, Offset root, Rect gauge})? rewardGeometry;
+  double get displayedProgress {
+    final progress = (r['progress'] as num).toDouble();
+    return rewardKind == null
+        ? progress
+        : rewardFrom +
+              (progress - rewardFrom) *
+                  rewardAbsorption(rewardController.value);
+  }
+
   String? warning;
   Map<String, Map<String, String>> missions = {};
   bool missionStorageBroken = false;
@@ -126,6 +149,7 @@ class _FarmGameState extends State<FarmGame> with WidgetsBindingObserver {
   bool disconnected = false, refreshing = false;
   String? loadedCrop;
   bool galleryWarmed = false;
+  bool startupWarmed = false;
   bool get cropReady =>
       !remote || r['cropId'] == null || loadedCrop == r['cropId'];
   String? loginError;
@@ -194,7 +218,17 @@ class _FarmGameState extends State<FarmGame> with WidgetsBindingObserver {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!startupWarmed) {
+      startupWarmed = true;
+      unawaited(warmGallery());
+    }
+  }
+
+  @override
   void dispose() {
+    rewardController.dispose();
     missionTimer?.cancel();
     pin.dispose();
     WidgetsBinding.instance.removeObserver(this);
@@ -319,6 +353,7 @@ class _FarmGameState extends State<FarmGame> with WidgetsBindingObserver {
   }
 
   void showTab(int value) {
+    if (busy) return;
     setState(() => tab = value);
     if (remote) {
       if (value == 1) {
@@ -362,18 +397,48 @@ class _FarmGameState extends State<FarmGame> with WidgetsBindingObserver {
   Future<void> warmGallery() async {
     if (galleryWarmed) return;
     galleryWarmed = true;
+    // The login background and mascot take priority over collection thumbnails.
+    await precacheImage(
+      gameImage('environment/bg-school-farm'),
+      context,
+      onError: (_, _) {},
+    );
+    if (!mounted) return;
     for (final name in [
       'characters/drop-default',
       'characters/drop-happy',
       'characters/drop-celebrate',
-      for (final crop in crops.keys) 'crops/$crop-harvest',
+      'environment/field-base',
+      'environment/field-dry-base',
     ]) {
       if (!mounted) return;
       await precacheImage(
-        gameImage(name, width: name.startsWith('crops/') ? 512 : 256),
+        gameImage(name, width: name.startsWith('characters/') ? 256 : 1024),
         context,
         onError: (_, _) {},
       );
+    }
+    // Three small requests at a time keep visible crop requests responsive.
+    final thumbnails = [for (final crop in crops.keys) 'crops/$crop-thumb'];
+    for (var i = 0; i < thumbnails.length; i += 3) {
+      if (!mounted) return;
+      await Future.wait([
+        for (final name in thumbnails.skip(i).take(3))
+          precacheImage(
+            gameImage(name, width: 256),
+            context,
+            onError: (_, _) {},
+          ),
+      ]);
+    }
+    // Preserve the original Hanja/CJK coverage without blocking Korean UI startup.
+    if (!mounted) return;
+    try {
+      await (FontLoader(
+        'NotoSansKRExtended',
+      )..addFont(rootBundle.load(extendedFontAsset))).load();
+    } catch (_) {
+      // Flutter's normal font fallback remains available if this optional load fails.
     }
   }
 
@@ -385,7 +450,9 @@ class _FarmGameState extends State<FarmGame> with WidgetsBindingObserver {
   }) => Image(
     image: gameImage(
       name,
-      width: name.endsWith('-harvest')
+      width: name.endsWith('-thumb') || name.endsWith('-garden')
+          ? 256
+          : name.endsWith('-harvest')
           ? 512
           : name.startsWith('characters/')
           ? 256
@@ -591,26 +658,67 @@ class _FarmGameState extends State<FarmGame> with WidgetsBindingObserver {
     int? missionRevision,
   }) async {
     if (busy || !cropReady || !canGrow(r, kind)) return;
+    final before = (r['progress'] as num).toDouble();
+    setState(() => busy = true);
     if (remote) {
-      setState(() => busy = true);
       final result = await remoteAction(
         kind == 'mission' ? missionType! : kind,
         missionRevision: missionRevision,
       );
-      if (result != null) await Future<void>.delayed(cropGrowthDuration);
-      if (mounted) setState(() => busy = false);
-      return;
+      if (result == null) {
+        if (mounted) setState(() => busy = false);
+        return;
+      }
+    } else {
+      setState(() => growRecord(r, kind));
+      save();
     }
-    setState(() {
-      busy = true;
-      growRecord(r, kind);
-    });
-    save();
-    await Future<void>.delayed(cropGrowthDuration);
-    if (mounted) setState(() => busy = false);
+    if (!mounted) return;
+    try {
+      if ((r['progress'] as num) > before &&
+          !MediaQuery.disableAnimationsOf(context)) {
+        rewardController.value = 0;
+        setState(() {
+          rewardKind = kind;
+          rewardFrom = before;
+        });
+        await WidgetsBinding.instance.endOfFrame;
+        if (!mounted) return;
+        final farm = farmKey.currentContext?.findRenderObject() as RenderBox?;
+        Rect? bounds(GlobalKey key) {
+          final box = key.currentContext?.findRenderObject() as RenderBox?;
+          if (farm == null || box == null || !box.hasSize) return null;
+          return box.localToGlobal(Offset.zero, ancestor: farm) & box.size;
+        }
+
+        final plot = bounds(plotKey),
+            mascot = bounds(mascotKey),
+            gauge = bounds(gaugeKey);
+        if (plot != null && mascot != null && gauge != null) {
+          setState(
+            () => rewardGeometry = (
+              home: mascot.center,
+              root: Offset(plot.center.dx, plot.top + plot.height * .82),
+              gauge: gauge,
+            ),
+          );
+          await rewardController.forward().orCancel;
+        }
+      }
+    } on TickerCanceled {
+      // Disposing the screen cancels only the presentation, never the saved reward.
+    } finally {
+      if (mounted)
+        setState(() {
+          rewardKind = null;
+          rewardGeometry = null;
+          busy = false;
+        });
+    }
   }
 
   Future<void> mission() async {
+    if (busy) return;
     final type = await popup<String>(
       '미션',
       (context, _) => Row(
@@ -1233,7 +1341,7 @@ class _FarmGameState extends State<FarmGame> with WidgetsBindingObserver {
 
   Widget quietButton(String label, IconData icon, VoidCallback onPressed) =>
       TextButton.icon(
-        onPressed: onPressed,
+        onPressed: busy ? null : onPressed,
         icon: Icon(icon, size: 17),
         label: Text(label),
         style: TextButton.styleFrom(
@@ -1251,175 +1359,236 @@ class _FarmGameState extends State<FarmGame> with WidgetsBindingObserver {
         ),
       );
 
-  Widget farm() {
+  Widget farm() => AnimatedBuilder(
+    animation: rewardController,
+    builder: (_, _) => farmFrame(),
+  );
+
+  Widget farmFrame() {
     final crop = r['cropId'] as String?;
-    return Column(
+    final progress = displayedProgress;
+    final effect = rewardGeometry;
+    return Stack(
+      key: farmKey,
+      clipBehavior: Clip.none,
       children: [
-        Row(
+        Column(
           children: [
-            Expanded(
-              child: TextButton.icon(
-                onPressed: busy ? null : settings,
-                icon: const Icon(Icons.eco, size: 18),
-                label: Text(profileLabel, style: const TextStyle(fontSize: 13)),
-              ),
+            Row(
+              children: [
+                Expanded(
+                  child: TextButton.icon(
+                    onPressed: busy ? null : settings,
+                    icon: const Icon(Icons.eco, size: 18),
+                    label: Text(
+                      profileLabel,
+                      style: const TextStyle(fontSize: 13),
+                    ),
+                  ),
+                ),
+                TextButton.icon(
+                  onPressed: () => showTab(2),
+                  icon: const Icon(Icons.emoji_events_outlined, size: 20),
+                  label: Text('$harvestCount'),
+                ),
+              ],
             ),
-            TextButton.icon(
-              onPressed: () => showTab(2),
-              icon: const Icon(Icons.emoji_events_outlined, size: 20),
-              label: Text('$harvestCount'),
-            ),
-          ],
-        ),
-        panel(
-          Column(
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            panel(
+              Column(
                 children: [
-                  Text(
-                    crops[crop] ?? '다음 작물',
-                    style: const TextStyle(fontWeight: FontWeight.w800),
-                  ),
-                  Text(
-                    '${r['progress']} / 100%',
-                    style: const TextStyle(fontWeight: FontWeight.w800),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 9),
-              TweenAnimationBuilder<double>(
-                tween: Tween(end: (r['progress'] as num).toDouble() / 100),
-                duration: Duration(
-                  milliseconds: MediaQuery.disableAnimationsOf(context)
-                      ? 0
-                      : 1800,
-                ),
-                builder: (_, value, _) => ClipRRect(
-                  borderRadius: BorderRadius.circular(10),
-                  child: LinearProgressIndicator(
-                    value: value,
-                    minHeight: 16,
-                    backgroundColor: const Color(0xffdce4c3),
-                    color: green,
-                    semanticsLabel: '작물 성장도',
-                  ),
-                ),
-              ),
-            ],
-          ),
-          padding: const EdgeInsets.all(16),
-        ),
-        const SizedBox(height: 12),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            quietButton('미션', Icons.task_alt, mission),
-            quietButton(
-              '메시지',
-              Icons.chat_bubble_outline,
-              () => popup<void>(
-                '메시지',
-                (_, _) => const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 24),
-                  child: Text('아직 도착한 메시지가 없어요.', textAlign: TextAlign.center),
-                ),
-              ),
-            ),
-          ],
-        ),
-        Expanded(
-          child: LayoutBuilder(
-            builder: (context, box) {
-              final side = math.min(370.0, box.maxHeight);
-              return Stack(
-                alignment: Alignment.center,
-                clipBehavior: Clip.none,
-                children: [
-                  if (crop != null)
-                    SizedBox(
-                      width: side,
-                      height: side,
-                      child: Stack(
-                        fit: StackFit.expand,
-                        children: [
-                          image(
-                            'environment/${crop == 'rice' ? 'field-base' : 'field-dry-base'}',
-                          ),
-                          CropGrowth(
-                            key: ValueKey(crop),
-                            cropId: crop,
-                            name: crops[crop]!,
-                            progress: (r['progress'] as num).toDouble(),
-                            onReady: () {
-                              if (mounted) setState(() => loadedCrop = crop);
-                              unawaited(warmGallery());
-                            },
-                          ),
-                        ],
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        crops[crop] ?? '다음 작물',
+                        style: const TextStyle(fontWeight: FontWeight.w800),
                       ),
-                    )
-                  else
-                    panel(heading('다음 작물을 심어보세요', size: 19)),
-                  Positioned(
-                    right: 0,
-                    bottom: 0,
-                    child: image(
-                      'characters/${r['progress'] >= 100
-                          ? 'drop-celebrate'
-                          : busy
-                          ? 'drop-happy'
-                          : 'drop-default'}',
-                      width: 90,
-                      height: 100,
+                      Text(
+                        '${progress.round()} / 100%',
+                        style: const TextStyle(fontWeight: FontWeight.w800),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 9),
+                  TweenAnimationBuilder<double>(
+                    tween: Tween(end: progress / 100),
+                    duration:
+                        rewardKind != null ||
+                            MediaQuery.disableAnimationsOf(context)
+                        ? Duration.zero
+                        : cropGrowthDuration,
+                    builder: (_, value, _) => ClipRRect(
+                      key: gaugeKey,
+                      borderRadius: BorderRadius.circular(10),
+                      child: LinearProgressIndicator(
+                        value: value,
+                        minHeight: 16,
+                        backgroundColor: const Color(0xffdce4c3),
+                        color: green,
+                        semanticsLabel: '작물 성장도',
+                      ),
                     ),
                   ),
                 ],
-              );
-            },
-          ),
+              ),
+              padding: const EdgeInsets.all(16),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                quietButton('미션', Icons.task_alt, mission),
+                quietButton(
+                  '메시지',
+                  Icons.chat_bubble_outline,
+                  () => popup<void>(
+                    '메시지',
+                    (_, _) => const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 24),
+                      child: Text(
+                        '아직 도착한 메시지가 없어요.',
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            Expanded(
+              child: LayoutBuilder(
+                builder: (context, box) {
+                  final side = math.min(370.0, box.maxHeight);
+                  return Stack(
+                    alignment: Alignment.center,
+                    clipBehavior: Clip.none,
+                    children: [
+                      if (crop != null)
+                        SizedBox(
+                          key: plotKey,
+                          width: side,
+                          height: side,
+                          child: Stack(
+                            fit: StackFit.expand,
+                            children: [
+                              image(
+                                'environment/${crop == 'rice' ? 'field-base' : 'field-dry-base'}',
+                              ),
+                              Transform.rotate(
+                                alignment: cropRootAnchor,
+                                angle: rewardKind == null
+                                    ? 0
+                                    : math.sin(rewardController.value * 60) *
+                                          math.sin(
+                                            rewardAbsorption(
+                                                  rewardController.value,
+                                                ) *
+                                                math.pi,
+                                          ) *
+                                          .018,
+                                child: CropGrowth(
+                                  key: ValueKey(crop),
+                                  cropId: crop,
+                                  name: crops[crop]!,
+                                  progress: progress,
+                                  animate: rewardKind == null,
+                                  onReady: () {
+                                    if (mounted)
+                                      setState(() => loadedCrop = crop);
+                                    unawaited(warmGallery());
+                                  },
+                                ),
+                              ),
+                            ],
+                          ),
+                        )
+                      else
+                        panel(heading('다음 작물을 심어보세요', size: 19)),
+                      Positioned(
+                        right: 0,
+                        bottom: 0,
+                        child: Opacity(
+                          key: mascotKey,
+                          opacity: rewardKind == 'water' && effect != null
+                              ? rewardPhase(rewardController.value, .8, 1)
+                              : 1,
+                          child: image(
+                            'characters/${r['progress'] >= 100
+                                ? 'drop-celebrate'
+                                : busy
+                                ? 'drop-happy'
+                                : 'drop-default'}',
+                            width: 90,
+                            height: 100,
+                          ),
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              ),
+            ),
+            Text(
+              rewardKind != null
+                  ? rewardKind == 'water'
+                        ? rewardController.value < .48
+                              ? '물방울이 작물에게 가요!'
+                              : '촉촉하게, 쑥쑥 자라요!'
+                        : '영양분이 뿌리로 쏙!'
+                  : busy
+                  ? '잠시만요, 확인 중이에요…'
+                  : r['progress'] >= 100
+                  ? '수확할 준비 완료!'
+                  : crop == null
+                  ? '새로운 작물을 만나볼까요?'
+                  : '오늘도 조금씩 자라고 있어요',
+              style: const TextStyle(fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 14),
+            action(
+              crop == null
+                  ? '다음 작물 심기'
+                  : progress >= 100
+                  ? '수확하기'
+                  : '물 주기 +50%',
+              busy
+                  ? null
+                  : crop == null
+                  ? chooseCrop
+                  : r['progress'] >= 100
+                  ? harvest
+                  : cropReady && canGrow(r, 'water')
+                  ? () => grow('water')
+                  : null,
+              icon: crop == null
+                  ? Icons.eco
+                  : r['progress'] >= 100
+                  ? Icons.emoji_events
+                  : Icons.water_drop,
+            ),
+            if (r['dailyMode'] &&
+                crop != null &&
+                r['progress'] < 100 &&
+                !canGrow(r, 'water'))
+              const Padding(
+                padding: EdgeInsets.only(top: 6),
+                child: Text(
+                  '오늘 물 주기를 마쳤어요. 내일 다시 만나요!',
+                  style: TextStyle(fontSize: 12),
+                ),
+              ),
+          ],
         ),
-        Text(
-          busy
-              ? '쑥쑥 자라는 중!'
-              : r['progress'] >= 100
-              ? '수확할 준비 완료!'
-              : crop == null
-              ? '새로운 작물을 만나볼까요?'
-              : '오늘도 조금씩 자라고 있어요',
-          style: const TextStyle(fontWeight: FontWeight.w700),
-        ),
-        const SizedBox(height: 14),
-        action(
-          crop == null
-              ? '다음 작물 심기'
-              : r['progress'] >= 100
-              ? '수확하기'
-              : '물 주기 +50%',
-          busy
-              ? null
-              : crop == null
-              ? chooseCrop
-              : r['progress'] >= 100
-              ? harvest
-              : cropReady && canGrow(r, 'water')
-              ? () => grow('water')
-              : null,
-          icon: crop == null
-              ? Icons.eco
-              : r['progress'] >= 100
-              ? Icons.emoji_events
-              : Icons.water_drop,
-        ),
-        if (r['dailyMode'] &&
-            crop != null &&
-            r['progress'] < 100 &&
-            !canGrow(r, 'water'))
-          const Padding(
-            padding: EdgeInsets.only(top: 6),
-            child: Text(
-              '오늘 물 주기를 마쳤어요. 내일 다시 만나요!',
-              style: TextStyle(fontSize: 12),
+        if (rewardKind != null && effect != null)
+          Positioned.fill(
+            child: RepaintBoundary(
+              child: RewardEffect(
+                kind: rewardKind!,
+                time: rewardController.value,
+                home: effect.home,
+                root: effect.root,
+                gauge: effect.gauge,
+                gain: ((r['progress'] as num) - rewardFrom).round(),
+              ),
             ),
           ),
       ],
@@ -1477,10 +1646,7 @@ class _FarmGameState extends State<FarmGame> with WidgetsBindingObserver {
                                   'environment/${crop == 'rice' ? 'field-base' : 'field-dry-base'}',
                                 ),
                                 if (crop != null)
-                                  image(
-                                    'crops/$crop-stage-04',
-                                    decodeWidth: 320,
-                                  )
+                                  image('crops/$crop-garden', decodeWidth: 256)
                                 else
                                   const Center(
                                     child: Icon(Icons.add, color: green),
@@ -1563,8 +1729,8 @@ class _FarmGameState extends State<FarmGame> with WidgetsBindingObserver {
                             child: Opacity(
                               opacity: count > 0 ? 1 : .3,
                               child: image(
-                                'crops/${c.key}-harvest',
-                                decodeWidth: 320,
+                                'crops/${c.key}-thumb',
+                                decodeWidth: 256,
                               ),
                             ),
                           ),
