@@ -75,6 +75,7 @@ void main() {
       await tester.pump();
     }
     expect(ready, isTrue);
+    await tester.pump();
     expect(find.bySemanticsLabel('사과 성장 50%'), findsOneWidget);
     expect(find.byType(Image), findsNWidgets(2));
     await tester.pumpWidget(plant(100));

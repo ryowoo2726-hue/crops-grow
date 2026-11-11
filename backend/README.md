@@ -1,5 +1,28 @@
 # 노트북 백엔드 준비
 
+## 2026-11-11 DB 저장 폴더 변경 완료
+
+사용자 요청으로 DB 본체와 WAL·SHM 세 파일을 서버 종료 상태에서 C:\scr\grow로 이동했다. 기존 대상 파일 덮어쓰기 없이 이동 전후 SHA-256 일치 및 SQLite integrity_check 정상 결과를 확인했다. 로컬 config.json의 dataDirectory도 C:\scr\grow로 변경했다. 공식 DB는 C:\scr\grow\growgame.sqlite이며 통합 실행 파일은 이 설정을 그대로 사용한다. 서버는 종료 상태를 유지한다.
+
+
+## 2026-11-11 사용자 요청으로 서버 종료
+
+사용자 요청으로 현재 노트북의 GrowGame API와 Cloudflare Tunnel을 종료했다. 두 프로세스 종료와 로컬 8787 포트 대기 없음 확인. 이전 healthy·외부 health 200은 실행 중에 확인한 이력이며 현재 가동 상태가 아니다. DB `C:\scr\growgame.sqlite`, 로컬 설정, 암호화된 Tunnel 토큰과 바탕화면 바로가기는 보존했다.
+
+직접 시작: 현재 프로젝트 폴더의 **GrowGame 시작.cmd**를 더블클릭하면 API와 Tunnel 실행 창이 함께 열린다. 두 창을 유지한다. 이 통합 실행 파일은 같은 폴더의 기존 바로가기 두 개를 사용하므로 세 파일을 함께 보관한다. 개별 실행도 가능하다. 프로젝트 폴더의 바로가기 두 개는 이 PC 전용이며 Git 로컬 제외 목록으로 업로드를 방지했다. 두 창을 유지한다. 종료: Tunnel 창에서 Ctrl+C, API 창에서 Ctrl+C를 누른 뒤 창을 닫는다. 재부팅 후 자동 실행되지 않는다.
+
+
+## 현재 노트북 서버 설정 완료 (2026-11-11)
+
+사용자가 현재 이 노트북을 백엔드 서버로 지정했다. 이전의 다른 노트북 사용 방침을 대체한다. 학생 DB는 사용자 지정 `C:\scr\growgame.sqlite`에 저장하며 기존 폴더와 파일은 보존했다. Node.js 24.20.0, cloudflared 2026.10.1을 확인했다. DB 경로 설정은 `%LOCALAPPDATA%\growgame-server\config.json`에, Tunnel 토큰은 같은 설정 폴더의 `tunnel-token.clixml`에 Windows 사용자 DPAPI로 암호화해 보관한다.
+
+현재 API와 HTTP/2 Tunnel을 실행했다. 로컬 및 외부 `/api/health` HTTP 200, 프론트 Origin 허용 헤더, Tunnel `healthy`와 연결 4개를 확인했다. `node --test backend/backend.test.cjs` 통과. 실제 미션 콘텐츠 등록, 학생 등록·행동, 학교 Wi-Fi 다수 사용자 검증은 남아 있다. 실제 콘텐츠나 학생 기록을 자동 입력하지 않았다.
+
+API와 Tunnel은 현재 도구 관리 세션에서 실행 중이다. 숨김 백그라운드 시작은 자동 승인 검토에서 거부되어 적용하지 않았다. Windows 서비스·자동 시작·전원 설정은 변경하지 않았다. 재부팅 또는 실행 세션 종료 후 바탕화면 **GrowGame API**, **GrowGame Tunnel**을 각각 실행하고 두 창을 유지한다. 이미 실행 중이면 중복 실행하지 않는다. 종료는 각 창의 Ctrl+C다.
+
+아래 다른 노트북·Tunnel inactive 관련 과거 기록은 위 설정 이전의 이력이다. Understand 분석은 제외 목록 확인 단계에서 대기 중이며 그래프는 아직 생성하지 않았다.
+
+
 Node.js **24.13 이상, 24 LTS**를 사용합니다. HTTP·SQLite·비밀번호 해시는 Node 기본 기능으로 처리하므로 `npm install`, Docker, 별도 DB 서버가 필요 없습니다.
 
 ## 다른 노트북에서 처음 실행
@@ -41,7 +64,7 @@ API는 **127.0.0.1:8787**에서만 대기합니다. Cloudflare Tunnel이 여기�
 
 첫 실행에는 Cloudflare 대시보드의 **Networking → Tunnels → cropgrow-api → Add a replica**에서 확인한 해당 Tunnel 토큰을 숨김 입력합니다. 토큰은 Windows DPAPI로 해당 노트북 사용자에게 암호화해 `%LOCALAPPDATA%\growgame-server\tunnel-token.clixml`에 기억합니다. 토큰을 채팅이나 저장소에 넣지 마세요. 새 토큰은 `-ResetToken` 옵션으로 입력하고, 학교망에서 TCP 연결을 사용하려면 `-Protocol http2`를 지정합니다. 노트북과 Windows 사용자가 바뀌면 토큰을 다시 입력합니다.
 
-다른 노트북에서 커넥터를 아직 실행하지 않아 Tunnel은 현재 `inactive`입니다. 커넥터 없이 DNS만 생성되어 있어도 API가 서비스되는 것은 아닙니다. 학교망은 Cloudflare로 나가는 7844 TCP/UDP 연결이 허용되어야 합니다. 차단되어 있으면 학교 네트워크 담당자에게 허용을 요청하세요. 관련 [공식 조건](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/configure-tunnels/tunnel-with-firewall/)을 참고합니다.
+현재 노트북에서 커넥터를 실행해 Tunnel `healthy`와 외부 API 응답을 확인했습니다. 커넥터 없이 DNS만 생성되어 있어도 API가 서비스되는 것은 아닙니다. 학교망은 Cloudflare로 나가는 7844 TCP/UDP 연결이 허용되어야 합니다. 차단되어 있으면 학교 네트워크 담당자에게 허용을 요청하세요. 관련 [공식 조건](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/configure-tunnels/tunnel-with-firewall/)을 참고합니다.
 
 프론트 `cropgrow.sangsangbar.com`은 Pages `cropgrow`와 연결했습니다. GitHub 저장소 `ryowoo2726-hue/crops-grow`의 `main` push 시 자동 배포됩니다. 빌드 명령은 `bash scripts/build-web.sh`, 출력 폴더는 `build/web`, `API_BASE_URL=https://cropgrow-api.sangsangbar.com`입니다. `.github/workflows/frontend.yml`은 검사·빌드 아티팩트용입니다. 별도 Cloudflare API 토큰을 GitHub에 넣을 필요가 없습니다. 노트북 API와 Tunnel 실행은 별도로 필요합니다.
 

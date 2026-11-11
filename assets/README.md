@@ -6,6 +6,8 @@
 - `environment/`: 학교 텃밭 배경과 논·마른 흙 바닥.
 - `characters/`: 물방울 캐릭터 원본.
 - `fonts/`: Noto Sans KR 글꼴과 OFL 라이선스.
+
+웹 배포에는 `fonts/NotoSansKR.woff2`를 사용합니다. 원본 TTF의 전체 글리프·문자 매핑·가변 굵기를 유지한 WOFF2 압축본으로, 10,414,588바이트에서 3,908,652바이트로 줄였습니다. 원본 `NotoSansKR.ttf`와 OFL 라이선스도 보관합니다. 재생성은 `python -m fontTools.ttLib.woff2 compress assets/fonts/NotoSansKR.ttf -o assets/fonts/NotoSansKR.woff2`로 수행합니다. 이 앱의 배포 대상은 Flutter Web이며 WOFF2는 Flutter 데스크톱 실행용 폰트가 아닙니다.
 - `ui-mockups/`: 원본 화면 디자인 참고 시안.
 - `asset-manifest.json`: 원본 이미지 메타데이터와 컬러 토큰.
 

@@ -19,4 +19,4 @@ flutter:
   fonts:
     - family: NotoSansKR
       fonts:
-        - asset: assets/fonts/NotoSansKR.ttf
+        - asset: assets/fonts/NotoSansKR.woff2

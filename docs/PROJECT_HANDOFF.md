@@ -1,5 +1,37 @@
 # GrowGame 프로젝트 인수인계
 
+## 2026-11-11 로딩 최적화: 검증 완료, 운영 배포 대기
+
+웹 폰트를 전체 TTF 10,414,588바이트에서 WOFF2 3,908,652바이트로 압축했다. 문자 매핑 23,174개, 글리프 24,964개와 가변 굵기 100~900을 유지했으며 원본 TTF와 OFL은 보존했다. pubspec은 WOFF2를 사용하고 HTML에서 폰트를 선로딩한다. Flutter bootstrap을 HTML에 포함해 별도 요청을 줄이고 첫 프레임에서 로딩 안내를 제거한다. 작물 PNG·성장 기준·공식 SQLite 저장 정책은 변경하지 않았다.
+
+Chrome 캐시 없음·8Mbps·지연 40ms·압축 없는 로컬 정적 서버의 첫 프레임 측정은 22.1445초에서 16.3309초로 약 26% 단축됐다. 단일 로컬 비교이며 Cloudflare 압축 및 실제 학교망의 성능을 뜻하지 않는다. Chrome에서 압축 폰트 요청은 한 번이며 로딩 안내 제거와 한글 화면을 확인했다. Flutter 테스트 8개 통과(로컬 모드 전용 1개 기본 실행 시 제외), 백엔드 테스트 통과. 기존 성장 테스트는 이미지 준비 완료 후 UI 반영 한 프레임을 기다리도록 보정했다. Chrome 통합 테스트는 임시 DB로 PIN 등록·채점·성장·수확·도감·오프라인 복구·3가지 화면 크기를 통과했다.
+
+이 노트북에는 Flutter SDK가 없어 C:\Temp\growgame-flutter-sdk에 기존 CI와 같은 3.47.9를 준비했다. 한글 경로 분석 서버 오류를 피하기 위해 비어 있던 R:를 프로젝트 영문 별칭으로 사용했다. 검증 임시 DB는 삭제했고 C:\scr\grow 공식 DB와 운영 API·Tunnel은 종료 상태를 유지한다. 운영 빌드는 LOCAL_TEST_MODE 없이 실제 API 도메인으로 수행한다. GitHub push 및 Pages 배포 확인 후 상태를 갱신한다.
+
+
+## 2026-11-11 DB 저장 폴더 변경 완료
+
+사용자 요청으로 DB 본체와 WAL·SHM 세 파일을 서버 종료 상태에서 C:\scr\grow로 이동했다. 기존 대상 파일 덮어쓰기 없이 이동 전후 SHA-256 일치 및 SQLite integrity_check 정상 결과를 확인했다. 로컬 config.json의 dataDirectory도 C:\scr\grow로 변경했다. 공식 DB는 C:\scr\grow\growgame.sqlite이며 통합 실행 파일은 이 설정을 그대로 사용한다. 서버는 종료 상태를 유지한다.
+
+
+## 2026-11-11 사용자 요청으로 서버 종료
+
+사용자 요청으로 현재 노트북의 GrowGame API와 Cloudflare Tunnel을 종료했다. 두 프로세스 종료와 로컬 8787 포트 대기 없음 확인. 이전 healthy·외부 health 200은 실행 중에 확인한 이력이며 현재 가동 상태가 아니다. DB `C:\scr\growgame.sqlite`, 로컬 설정, 암호화된 Tunnel 토큰과 바탕화면 바로가기는 보존했다.
+
+직접 시작: 현재 프로젝트 폴더의 **GrowGame 시작.cmd**를 더블클릭하면 API와 Tunnel 실행 창이 함께 열린다. 두 창을 유지한다. 이 통합 실행 파일은 같은 폴더의 기존 바로가기 두 개를 사용하므로 세 파일을 함께 보관한다. 개별 실행도 가능하다. 프로젝트 폴더의 바로가기 두 개는 이 PC 전용이며 Git 로컬 제외 목록으로 업로드를 방지했다. 두 창을 유지한다. 종료: Tunnel 창에서 Ctrl+C, API 창에서 Ctrl+C를 누른 뒤 창을 닫는다. 재부팅 후 자동 실행되지 않는다.
+
+
+## 현재 노트북 서버 설정 완료 (2026-11-11)
+
+사용자가 현재 이 노트북을 백엔드 서버로 지정했다. 이전의 다른 노트북 사용 방침을 대체한다. 학생 DB는 사용자 지정 `C:\scr\growgame.sqlite`에 저장하며 기존 폴더와 파일은 보존했다. Node.js 24.20.0, cloudflared 2026.10.1을 확인했다. DB 경로 설정은 `%LOCALAPPDATA%\growgame-server\config.json`에, Tunnel 토큰은 같은 설정 폴더의 `tunnel-token.clixml`에 Windows 사용자 DPAPI로 암호화해 보관한다.
+
+현재 API와 HTTP/2 Tunnel을 실행했다. 로컬 및 외부 `/api/health` HTTP 200, 프론트 Origin 허용 헤더, Tunnel `healthy`와 연결 4개를 확인했다. `node --test backend/backend.test.cjs` 통과. 실제 미션 콘텐츠 등록, 학생 등록·행동, 학교 Wi-Fi 다수 사용자 검증은 남아 있다. 실제 콘텐츠나 학생 기록을 자동 입력하지 않았다.
+
+API와 Tunnel은 현재 도구 관리 세션에서 실행 중이다. 숨김 백그라운드 시작은 자동 승인 검토에서 거부되어 적용하지 않았다. Windows 서비스·자동 시작·전원 설정은 변경하지 않았다. 재부팅 또는 실행 세션 종료 후 바탕화면 **GrowGame API**, **GrowGame Tunnel**을 각각 실행하고 두 창을 유지한다. 이미 실행 중이면 중복 실행하지 않는다. 종료는 각 창의 Ctrl+C다.
+
+아래 다른 노트북·Tunnel inactive 관련 과거 기록은 위 설정 이전의 이력이다. Understand 분석은 제외 목록 확인 단계에서 대기 중이며 그래프는 아직 생성하지 않았다.
+
+
 최종 정리 기준: **2026-11-11, Asia/Seoul**. 다음 AI와 유지보수 담당자는 이 문서를 먼저 읽고 실제 파일·Cloudflare 상태를 다시 확인한다. 이 문서는 코드나 DB 자체를 대체하지 않는다.
 
 서버 노트북 설정 설명서는 사용자의 최신 요청으로 로컬 프로젝트에만 보관한다. Git 추적에서 제외했으므로 다시 업로드하지 않는다.
@@ -25,9 +57,9 @@
 | 프론트 | Flutter Web. 모바일 중심, 태블릿·PC에서도 같은 세로 비율을 최대 확대 |
 | 프론트 예정 주소 | `https://cropgrow.sangsangbar.com` |
 | API 주소 | `https://cropgrow-api.sangsangbar.com` |
-| 백엔드 실행 위치 | **현재 개발 PC가 아닌 다른 Windows 노트북**, 학교 인터넷 사용 |
+| 백엔드 실행 위치 | **현재 이 Windows 노트북**, DB `C:\scr` |
 | 서버 방식 | Node.js 24 LTS + SQLite, 노트북에서 수동 실행·종료 |
-| DB 폴더 | 서버 노트북 최초 실행 때 폴더 선택, 다음 실행부터 기억 |
+| DB 폴더 | `C:\scr` 설정 완료, 공식 DB `growgame.sqlite` |
 | 이미지·폰트 | 프론트에서 배포. 노트북 백엔드가 이미지 파일을 보내지 않음 |
 | 학생 데이터 | 성장률·수확·도감은 서버 조회 및 서버 저장 |
 | 로그인 | 최초 학년·반·번호에 숫자 4자리 PIN 등록, 이후 기존 PIN 확인 |
@@ -38,7 +70,7 @@
 | GitHub 저장소 | `https://github.com/ryowoo2726-hue/crops-grow` |
 | **Git 지시** | 2026-11-11 최신 요청으로 에셋 수정 및 GitHub 업로드·Cloudflare 연결 허용. 이전 보류 지시 해제 |
 | Cloudflare | 계정 연결 정상. `sangsangbar.com` zone 활성 상태 확인 |
-| API Tunnel / DNS | 생성·설정 완료. 다른 노트북 커넥터 미실행으로 `inactive` |
+| API Tunnel / DNS | 연결 설정 완료. 사용자 요청으로 API·Tunnel 종료, 수동 재실행 대기 |
 | 프론트 배포 | Pages `cropgrow`, GitHub `main` 자동 배포 연결 및 프론트 CNAME 생성 완료 |
 
 이전 HTML/CSS/JS 데모와 전용 아이콘·미리보기·테스트 38개는 정리했다. 디자인 원본, Figma 작업 자료, 작물 PNG, 기획서는 보존했다.
@@ -242,7 +274,7 @@ node backend/manage.cjs reset-pin 학년 반 번호
 ## 다음 작업과 문서 갱신 원칙
 
 1. 최신 사용자 지시를 확인한다. 현재는 에셋 수정·GitHub 업로드·Cloudflare 연결이 허용되었다.
-2. 학교 노트북에서 DB 폴더 선택·API 실행·Tunnel 토큰 입력 후 실제 연결을 확인한다.
+2. 현재 노트북 API·DB·Tunnel 연결 완료. 재부팅 후 바로가기 두 개로 재실행하고 외부 health를 확인한다.
 3. 실제 미션 콘텐츠와 최초 등록 운영 방식·일일 횟수를 결정한다.
 4. 프론트 변경은 검사 후 `main`에 push하고 Pages 배포 결과와 사용자 도메인 응답을 확인한다.
 5. 실사용 100~500명 조건에 가까운 학교 Wi-Fi와 노트북에서 지연·RAM·DB 백업을 확인한다.

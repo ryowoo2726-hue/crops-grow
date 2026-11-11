@@ -7,10 +7,16 @@
   <meta name="theme-color" content="#284b39">
   <meta name="description" content="마석중학교 농작물 키우기">
   <title>마석중학교 농작물 키우기</title>
+  <link rel="preload" href="assets/assets/fonts/NotoSansKR.woff2" as="fetch" type="font/woff2" crossorigin>
   <style>html,body{margin:0;background:#263c30;height:100%;}#loading{color:#fff9e9;font:16px sans-serif;display:grid;place-items:center;height:100%;}</style>
 </head>
 <body>
   <div id="loading" role="status">텃밭을 준비하고 있어요…</div>
-  <script src="flutter_bootstrap.js" async></script>
+  <script>
+    window.addEventListener('flutter-first-frame', () => {
+      document.getElementById('loading')?.remove();
+    }, {once: true});
+    {{flutter_bootstrap_js}}
+  </script>
 </body>
 </html>
