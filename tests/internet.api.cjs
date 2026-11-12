@@ -2,7 +2,7 @@
 // Optional --admin-read accepts the administrator password via stdin, never logs it.
 const fs=require('node:fs'),os=require('node:os'),path=require('node:path');
 const {performance}=require('node:perf_hooks');
-const local='http://127.0.0.1:8787',publicApi='https://cropgrow-api.sangsangbar.com';
+const local='http://127.0.0.1:8787',publicApi=process.env.GROWGAME_TEST_API_URL||'https://cropgrow-api.sangsangbar.com';
 const round=n=>Math.round(n);
 const percentile=(values,p)=>values[Math.min(values.length-1,Math.ceil(values.length*p)-1)];
 async function request(base,route,{body,token}={}){
@@ -16,8 +16,8 @@ async function request(base,route,{body,token}={}){
 const clean=({text,...result})=>result;
 (async()=>{
   const report={at:new Date().toISOString(),timeoutMs:12000,sequential:[],bursts:[]};
-  for(const base of [local,publicApi,'https://cropgrow.sangsangbar.com']){
-    const samples=[];for(let i=0;i<7;i++)samples.push(clean(await request(base,base.includes('cropgrow.sangsangbar.com')?'/version.json':'/api/health')));
+  for(const [base,route] of [[local,'/api/health'],[publicApi,'/api/health'],['https://cropgrow.sangsangbar.com','/version.json']]){
+    const samples=[];for(let i=0;i<7;i++)samples.push(clean(await request(base,route)));
     report.sequential.push({base,samples});console.log(JSON.stringify(report.sequential.at(-1)));
   }
   for(const base of [local,publicApi])for(let wave=1;wave<=(base===local?1:3);wave++){

@@ -1,5 +1,20 @@
 # GrowGame 프로젝트 인수인계
 
+## 2026-11-12 최적화 배포·외부 테스트 완료
+
+사용자 요청대로 **현재 PC는 테스트 서버**로 연결되어 있다. 로컬 `%LOCALAPPDATA%\growgame-test-data`의 별도 SQLite에 가상 참여자 1명·수확 1개·테스트 퀴즈/특별 미션을 만들었다. 실제 학생 DB를 사용하지 않았다. 테스트 PIN은 무작위 생성 후 출력/문서화하지 않았으며 세션은 로그아웃했다. 사용자는 다른 번호로 직접 테스트 등록할 수 있다. 관리자 비밀번호는 이 PC에서 미설정이다.
+
+기능 커밋 `bed077c6e572089f3c453d0e47a28af42d1e2f8d` main push, GitHub Actions `43185880263` 성공, Cloudflare Pages `5c124972-5b54-48d7-890e-81ac84af48ff` 배포 성공(`uses_functions: true`). 프론트 API는 `https://cropgrow.sangsangbar.com/api/*` → Pages Function → 기존 API Tunnel → 이 PC의 8787이다. DNS의 IP를 고정하지 않는다. Pages production/preview의 API_BASE_URL은 프론트 도메인이고 fail_open은 false다. `_routes.json`은 API 경로만 Function에 보낸다. 프록시는 인증/본문/오류 상태를 전달하고 캐시 및 리다이렉트 자동 추적을 금지한다. 관리자 직접 주소는 기존 API 도메인 `/admin/`이다.
+
+동일 PC 회선에서 이전 직접 API 경로와 새 경로를 각각 health 100건 × 3회 비교했다. 직접 경로(LAX)의 p95 2.476/3.514/4.148초·최장 6.964/8.713/7.527초에서, 새 경로(ICN)는 p95 0.190/0.080/0.088초·최장 0.199/0.085/0.096초로 줄었다. 양쪽 모두 실패 0/300이었다. 실제 외부 테스트 계정은 로그인 116ms, 퀴즈 채점 37ms, 성장/수확/심기 26~49ms, 정원 조회 27ms였다. 동일 요청 번호 재전송 시 보상 중복 없음과 같은 세션으로 로컬 기록 읽기까지 확인했다. 실제 학생 기기 100대에서 플레이한 수치는 아니다.
+
+실제 배포 Chrome 390×844, 회선 속도 제한 없음, 3회: 첫 프레임 2.820/0.858/0.685초(중앙값 0.858초), 캐시 재접속 0.257/0.260/0.260초(중앙값 0.260초). 여섯 health 모두 HTTP 200·HTTP/3·ICN. 재접속 해시 앱/폰트/엔진/이미지 전송은 0바이트. 로그인 화면 스크린샷 확인. 임시 DB Chrome 통합 검사는 보조 폰트를 보류해도 입장 완료, 실제 health GET 관찰·OPTIONS 없음, 현재 작물 이미지 준비, 물 애니메이션·채점·성장·수확·복구·3가지 화면을 통과했다.
+
+검증: flutter analyze, flutter test(12개 통과/로컬 전용 1개 제외), backend/backend.test.cjs 4개, finalize-web.test.cjs 1개, api-proxy.test.cjs 2개 통과. 자동 터널 시작과 같은 포트 중복 실행 거부, PowerShell 구문 검사 통과. API 종료 후 터널 정리/숨김 재시작 검증 명령은 자동 승인 검토가 차단했으며 상세 사유는 제공되지 않았다. 해당 종료 동작은 미검증이다. 현재 API·Tunnel은 도구 실행 세션에서 계속 가동 중이다. 서비스/부팅 자동 시작은 설치하지 않았다. 세션 종료/재부팅 뒤에는 `GrowGame 시작.cmd`를 실행한다.
+
+읽기 전용 비교 재현: `GROWGAME_TEST_API_URL=https://cropgrow.sangsangbar.com` 환경값으로 `node tests/internet.api.cjs` 실행. 원시 JSON·스크린샷은 OS 임시 폴더에만 보관한다. 테스트 DB·인증 자료·로컬 서버 설명서는 Git에 넣지 않았다. 후속 검증 스크립트/문서는 `[skip ci]` 커밋으로 저장하여 같은 제품 코드 재배포를 생략한다.
+
+
 ## 2026-11-12 테스트 PC 자동 연결·로딩 최적화 (배포 검증 중)
 
 사용자는 현재 PC가 테스트용이라고 확인했고 로컬 테스트 기록 생성을 요청했다. 이 PC에는 이전 공식 DB가 없으며 `%LOCALAPPDATA%\growgame-test-data`에 별도 SQLite를 만들었다. 기존 공식 기록을 복사하거나 초기화하지 않았다. 현재 API와 QUIC Tunnel을 시작했고 로컬/외부 health 200, ICN 터널 연결 4개를 확인했다. API 직접 도메인의 클라이언트 경로는 여전히 LAX이며 health 동시 100건 × 3회는 실패 0/300, 회차별 p95 2.476/3.514/4.148초, 최장 6.964/8.713/7.527초였다.

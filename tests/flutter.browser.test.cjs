@@ -101,6 +101,7 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     await wait("document.querySelector('flt-semantics-host')?.textContent.includes('0 / 100%')");
     for(let n=0;!pausedFont&&n<100;n++)await sleep(100);
     assert.ok(pausedFont,'보조 폰트 응답을 보류해도 게임 입장이 완료됨');
+    assert.ok(healthMethods.includes('GET'),'실제 health 조회를 관찰함');
     assert.ok(!healthMethods.includes('OPTIONS'),'health 조회에 불필요한 사전 확인 없음');
     await send('Fetch.continueRequest',{requestId:pausedFont});pausedFont=null;
     await send('Fetch.disable');

@@ -7,7 +7,7 @@ Flutter Web 프론트와 현재 서버 노트북에서 실행하는 Node.js + SQ
 - 프론트 주소: `https://cropgrow.sangsangbar.com`
 - 게임 API: `https://cropgrow.sangsangbar.com/api/*` (Pages에서 PC의 Tunnel로 전달)
 - 관리자/직접 API: `https://cropgrow-api.sangsangbar.com`
-- GitHub `main`과 Cloudflare Pages `cropgrow`를 연결했습니다. push하면 자동 배포됩니다. 프론트 도메인은 `cropgrow.sangsangbar.com`입니다. 2026-11-12 사용자가 백엔드와 Tunnel을 실행한 뒤 외부 API 200을 확인했습니다. 다만 실제 인터넷 조회에 지연·시간 초과·502가 관찰되어 [실제 인터넷 진단](docs/INTERNET_PERFORMANCE_REPORT.md)의 개선 항목이 남아 있습니다.
+- GitHub `main`과 Cloudflare Pages `cropgrow`를 연결했습니다. push하면 자동 배포됩니다. 2026-11-12 동일 도메인 API 전달과 로딩 최적화를 배포했습니다. 현재 PC의 별도 테스트 DB로 외부 플레이·저장과 health 300건 성공을 확인했습니다. 측정 조건과 결과는 [인터넷 성능 보고서](docs/INTERNET_PERFORMANCE_REPORT.md)를 확인하세요.
 
 ## 웹 로딩 최적화 (2026-11-11)
 
