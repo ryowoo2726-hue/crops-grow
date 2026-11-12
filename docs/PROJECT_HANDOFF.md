@@ -10,7 +10,7 @@ Node 직접 실행·start.ps1·기존 API 바로가기·통합 시작 모두 서
 
 검증 완료: `flutter analyze`, `flutter test` 12개(로컬 전용 1개 기본 제외), `node --test backend/backend.test.cjs`, 해시 URL 갱신 검사, 관리자 Chrome 320/390/1920px 검사 통과. Wasm+JS 빌드 성공. 임시 DB와 로컬 API를 사용한 `node tests/flutter.browser.test.cjs`에서 입장 전 현재 작물 네 성장 이미지·수확 이미지 준비, 첫 특별/퀴즈 미션 추가 GET 0회, 서버 채점·성장·수확·도감·오프라인/복구·3가지 화면 검사를 통과했다. CLI의 별도 포트 시작·관리자 주소 출력·HTTP 200도 확인했다(브라우저 자동 실행은 검증 중 생략). 실제 기본 브라우저 자동 열기와 학교망 체감 속도는 미검증이다. 웹 빌드는 Drive 출력 단계 지연으로 중단 후 `C:\Temp\growgame-preload-web` 출력으로 성공했다.
 
-Git/Pages 적용 상태: 업로드 진행 중. 이전 관리자 구현을 포함하여 필요한 변경만 업로드하며 로컬 서버 설정 설명서·DB·자격 증명·분석 산출물은 업로드하지 않는다. 운영 API 재시작·Tunnel 실행은 하지 않았다.
+Git/Pages 적용 완료: 기능 커밋 `680fe66ab2ed3162a6c73db255b66719ff274614`을 GitHub main에 push했다. GitHub Actions `43152369130` 성공, Cloudflare Pages `ec421be3-84c6-4ea1-977c-4d39ada276d1` 배포 성공. 실제 `https://cropgrow.sangsangbar.com`의 HTML·Wasm·MJS HTTP 200과 새 배포 주소의 코드 파일명 일치를 확인했다. 이전 관리자 구현도 함께 업로드했다. 로컬 서버 설정 설명서·DB·자격 증명·분석 산출물은 업로드하지 않았다. 검증용 API·정적 서버와 R: 별칭은 종료/정리했다. 운영 API 재시작·Tunnel 실행은 하지 않았다. 다음 `GrowGame 시작.cmd` 실행부터 새 백엔드의 로그인 묶음과 관리자 자동 열기가 적용된다. 후속 완료 기록은 `[skip ci]` 문서 커밋으로 남긴다.
 
 ## 2026-11-12 로컬 관리자 미리보기 실행
 
