@@ -11,4 +11,5 @@ coverage/
 !.env.example
 backend/content/
 *.clixml
+admin-credentials.json
 /docs/서버_노트북_설정_설명서.md

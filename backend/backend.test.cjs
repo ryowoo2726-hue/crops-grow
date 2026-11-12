@@ -5,6 +5,73 @@ const os=require('node:os');
 const path=require('node:path');
 const {backup}=require('node:sqlite');
 const {createBackend}=require('./server.cjs');
+const {hashPassword}=require('./admin.cjs');
+
+test('관리자 인증, 학생 목록, PIN 변경, 권한 분리와 만료',async t=>{
+  const directory=fs.mkdtempSync(path.join(os.tmpdir(),'growgame-admin-'));
+  let clock=Date.parse('2026-11-12T00:00:00Z');
+  const password='6815',credentials=await hashPassword(password);
+  const app=createBackend({directory,now:()=>clock,adminCredentials:credentials});
+  await new Promise(resolve=>app.server.listen(0,'127.0.0.1',resolve));
+  const base=`http://127.0.0.1:${app.server.address().port}`;
+  t.after(async()=>{await new Promise(resolve=>app.server.close(resolve));app.store.db.close();assert.ok(directory.startsWith(path.resolve(os.tmpdir())+path.sep));fs.rmSync(directory,{recursive:true,force:true});});
+  const request=async(route,{token,body,origin}={})=>{
+    const response=await fetch(base+route,{method:body?'POST':'GET',headers:{...(body?{'Content-Type':'application/json'}:{}),...(token?{Authorization:'Bearer '+token}:{}),...(origin?{Origin:origin}:{})},...(body?{body:JSON.stringify(body)}:{})});
+    return {status:response.status,data:await response.json(),headers:response.headers};
+  };
+  const profile={grade:1,classNo:2,number:3};
+  const student=await app.store.login(profile,'1234');
+  const id=app.store.authenticate(student.token);
+  app.store.action(id,{kind:'water',requestId:'admin-water-0000001'});
+  app.store.action(id,{kind:'water',requestId:'admin-water-0000002'});
+  app.store.action(id,{kind:'harvest',requestId:'admin-harvest-00001'});
+  app.store.action(id,{kind:'plant',cropId:'apple',requestId:'admin-plant-0000001'});
+  app.store.action(id,{kind:'water',requestId:'admin-water-0000003'});
+  await app.store.login({grade:2,classNo:1,number:1},'4321');
+  assert.equal((await request('/api/admin/students')).status,401);
+  assert.equal((await request('/api/admin/students',{token:student.token})).status,401);
+  assert.equal((await request('/api/admin/reset-pin',{token:student.token,body:{profile,pin:'0246'}})).status,401);
+  assert.equal((await request('/api/admin/session',{body:{password},origin:'https://untrusted.example'})).status,403);
+  assert.equal((await request('/api/admin/session',{body:{password},origin:'http://localhost:4174'})).status,403);
+  for(let n=0;n<5;n++) assert.equal((await request('/api/admin/session',{body:{password:'9999'}})).status,401);
+  assert.equal((await request('/api/admin/session',{body:{password}})).status,429);
+  clock+=16*60000;
+  const login=await request('/api/admin/session',{body:{password},origin:base});
+  assert.equal(login.status,200);
+  const token=login.data.token;
+  assert.equal((await request('/api/me',{token})).status,401);
+  const list=await request('/api/admin/students',{token});
+  assert.equal(list.headers.get('cache-control'),'no-store');
+  assert.deepEqual(list.data.students,[{grade:1,classNo:2,number:3,cropId:'apple',progress:50,pinConfigured:1,harvestCount:1},{grade:2,classNo:1,number:1,cropId:'rice',progress:0,pinConfigured:1,harvestCount:0}]);
+  assert.ok(!JSON.stringify(list.data).includes('pin_hash'));
+  assert.ok(!JSON.stringify(list.data).includes('pin_salt'));
+  assert.ok(!JSON.stringify(list.data).includes('1234'));
+  assert.equal((await request('/api/admin/reset-pin',{token,body:{profile,pin:'12'}})).status,400);
+  assert.equal((await request('/api/admin/reset-pin',{token,body:{profile:{...profile,number:30},pin:'0246'}})).status,404);
+  assert.equal((await request('/api/admin/reset-pin',{token,origin:base,body:{profile,pin:'0246'}})).status,200);
+  assert.equal((await request('/api/me',{token:student.token})).status,401);
+  const changed=await app.store.login(profile,'0246');
+  assert.equal(changed.state.progress,50);assert.equal(changed.state.harvestCount,1);
+  const page=await fetch(base+'/admin');
+  assert.equal(page.status,200);assert.match(page.headers.get('content-security-policy'),/frame-ancestors 'none'/);
+  assert.ok(!(await page.text()).includes(password));
+  for(const file of ['admin.js','admin.css']) assert.equal((await fetch(base+'/admin/'+file)).status,200);
+  assert.equal((await request('/api/admin/logout',{token,body:{}})).status,200);
+  assert.equal((await request('/api/admin/students',{token})).status,401);
+  const next=(await request('/api/admin/session',{body:{password}})).data.token;
+  clock+=30*60000;
+  assert.equal((await request('/api/admin/students',{token:next})).status,401);
+  await assert.rejects(hashPassword('x'));
+});
+
+test('관리자 비밀번호 미설정 시 로그인 차단',async t=>{
+  const directory=fs.mkdtempSync(path.join(os.tmpdir(),'growgame-admin-disabled-'));
+  const app=createBackend({directory});
+  await new Promise(resolve=>app.server.listen(0,'127.0.0.1',resolve));
+  t.after(async()=>{await new Promise(resolve=>app.server.close(resolve));app.store.db.close();assert.ok(directory.startsWith(path.resolve(os.tmpdir())+path.sep));fs.rmSync(directory,{recursive:true,force:true});});
+  const response=await fetch(`http://127.0.0.1:${app.server.address().port}/api/admin/session`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:'6815'})});
+  assert.equal(response.status,503);
+});
 
 test('DB 복원, PIN, 서버 판정, 중복 보상 방지, CORS와 클래스 분리',async t=>{
   const directory=fs.mkdtempSync(path.join(os.tmpdir(),'growgame-backend-'));
@@ -23,6 +90,9 @@ test('DB 복원, PIN, 서버 판정, 중복 보상 방지, CORS와 클래스 분
   const login=await api('/api/session',{body:{profile,pin:'1234'}});
   assert.equal(login.status,200); const token=login.data.token;
   assert.equal(login.data.state.progress,0);
+  assert.deepEqual(login.data.quiz,(await api('/api/quizzes/current',{token})).data);
+  assert.deepEqual(login.data.garden,(await api('/api/garden?page=0',{token})).data);
+  assert.equal(login.data.mission,null);
   assert.ok(!JSON.stringify(login.data).includes('pin_hash'));
   assert.equal((await api('/api/me')).status,401);
   assert.equal((await api('/api/me',{token,origin:'https://untrusted.example'})).status,403);
@@ -49,6 +119,11 @@ test('DB 복원, PIN, 서버 판정, 중복 보상 방지, CORS와 클래스 분
   assert.equal(publicQuiz.questions[0].choices.length,4);
   assert.ok(!JSON.stringify(publicQuiz).includes('correctIndex'));
   assert.ok(!JSON.stringify(publicQuiz).includes('정답 해설'));
+  const prepared=(await api('/api/session',{body:{profile,pin:'1234'}})).data;
+  assert.deepEqual(prepared.quiz,publicQuiz);
+  assert.deepEqual(prepared.garden,(await api('/api/garden?page=0',{token})).data);
+  assert.ok(!JSON.stringify(prepared).includes('correctIndex'));
+  assert.ok(!JSON.stringify(prepared).includes('정답 해설'));
   const answer={week:publicQuiz.week,revision:publicQuiz.revision,questionId:publicQuiz.questions[0].id,answerIndex:0};
   assert.deepEqual((await api('/api/quizzes/check',{token,body:answer})).data,{correct:false,explanation:''});
   assert.equal((await api('/api/actions',{token,body:{kind:'quiz',missionRevision:publicQuiz.revision,requestId:'quiz-request-00001'}})).status,409);

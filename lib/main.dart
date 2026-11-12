@@ -149,6 +149,10 @@ class _FarmGameState extends State<FarmGame>
   bool disconnected = false, refreshing = false;
   String? loadedCrop;
   bool galleryWarmed = false;
+  Future<void>? galleryPreparation;
+  final missionData = <String, Map<String, dynamic>>{};
+  DateTime? missionsLoadedAt;
+  String? loginStatus;
   bool startupWarmed = false;
   bool get cropReady =>
       !remote || r['cropId'] == null || loadedCrop == r['cropId'];
@@ -222,7 +226,7 @@ class _FarmGameState extends State<FarmGame>
     super.didChangeDependencies();
     if (!startupWarmed) {
       startupWarmed = true;
-      unawaited(warmGallery());
+      galleryPreparation = warmGallery();
     }
   }
 
@@ -252,6 +256,10 @@ class _FarmGameState extends State<FarmGame>
         ? error
         : const ApiException('서버 응답을 확인하지 못했어요.', 0);
     setState(() {
+      if (apiError.status == 401 || apiError.status == 409) {
+        missionData.clear();
+        missionsLoadedAt = null;
+      }
       disconnected = apiError.status == 0 || apiError.status >= 500;
       loginError = apiError.message;
       if (apiError.status == 401 && record != null) {
@@ -419,7 +427,12 @@ class _FarmGameState extends State<FarmGame>
       );
     }
     // Three small requests at a time keep visible crop requests responsive.
-    final thumbnails = [for (final crop in crops.keys) 'crops/$crop-thumb'];
+    final thumbnails = [
+      for (final crop in crops.keys) ...[
+        'crops/$crop-thumb',
+        'crops/$crop-garden',
+      ],
+    ];
     for (var i = 0; i < thumbnails.length; i += 3) {
       if (!mounted) return;
       await Future.wait([
@@ -439,6 +452,29 @@ class _FarmGameState extends State<FarmGame>
       )..addFont(rootBundle.load(extendedFontAsset))).load();
     } catch (_) {
       // Flutter's normal font fallback remains available if this optional load fails.
+    }
+  }
+
+  Future<void> preparePlay(String? crop) async {
+    await galleryPreparation;
+    if (!mounted || crop == null) return;
+    Object? failure;
+    for (final provider in <ImageProvider<Object>>[
+      for (var stage = 1; stage <= 4; stage++)
+        gameImage('crops/$crop-stage-${stage.toString().padLeft(2, '0')}'),
+      gameImage('crops/$crop-harvest', width: 512),
+    ]) {
+      if (!mounted) return;
+      await precacheImage(
+        provider,
+        context,
+        onError: (error, _) {
+          failure ??= error;
+        },
+      );
+    }
+    if (failure != null) {
+      throw const ApiException('작물 이미지를 준비하지 못했어요. 다시 시작해 주세요.', 0);
     }
   }
 
@@ -612,6 +648,9 @@ class _FarmGameState extends State<FarmGame>
       setState(() {
         busy = true;
         loginError = null;
+        loginStatus = '로그인 확인 중…';
+        missionData.clear();
+        missionsLoadedAt = null;
       });
       try {
         final result = await backend.call('POST', '/api/session', {
@@ -621,17 +660,32 @@ class _FarmGameState extends State<FarmGame>
         if (!mounted) return;
         backend.token = result['token'];
         pendingRequests.clear();
+        setState(() => loginStatus = '플레이 자료 준비 중…');
+        await preparePlay(result['state']['cropId'] as String?);
+        if (!mounted) return;
+        if (result['quiz'] is Map<String, dynamic>)
+          missionData['quiz'] = result['quiz'];
+        if (result.containsKey('mission'))
+          missionData['special'] = {'mission': result['mission']};
+        missionsLoadedAt = DateTime.now();
         applyRemoteState(result['state']);
         setState(() {
           tab = 0;
           page = 0;
-          gardenData = {'items': <dynamic>[], 'total': 0, 'pages': 1};
+          gardenData =
+              result['garden'] as Map<String, dynamic>? ??
+              {'items': <dynamic>[], 'total': 0, 'pages': 1};
         });
         pin.clear();
       } catch (error) {
+        backend.token = '';
         remoteError(error);
       } finally {
-        if (mounted) setState(() => busy = false);
+        if (mounted)
+          setState(() {
+            busy = false;
+            loginStatus = null;
+          });
       }
       return;
     }
@@ -791,10 +845,16 @@ class _FarmGameState extends State<FarmGame>
     setState(() => busy = true);
     Map<String, dynamic> data;
     try {
-      data = await backend.call(
-        'GET',
-        type == 'quiz' ? '/api/quizzes/current' : '/api/missions/current',
-      );
+      final fresh =
+          missionsLoadedAt != null &&
+          DateTime.now().difference(missionsLoadedAt!) <
+              const Duration(seconds: 60);
+      data = fresh && missionData.containsKey(type)
+          ? missionData[type]!
+          : await backend.call(
+              'GET',
+              type == 'quiz' ? '/api/quizzes/current' : '/api/missions/current',
+            );
       if (!mounted || record == null) return;
       setState(() => disconnected = false);
     } catch (error) {
@@ -1156,6 +1216,8 @@ class _FarmGameState extends State<FarmGame>
         }
         backend.token = '';
         pendingRequests.clear();
+        missionData.clear();
+        missionsLoadedAt = null;
       }
       if (!mounted) return;
       setState(() => record = null);
@@ -1313,7 +1375,7 @@ class _FarmGameState extends State<FarmGame>
                         ),
                     ],
                     action(
-                      busy ? '확인 중…' : '시작하기',
+                      busy ? (loginStatus ?? '확인 중…') : '시작하기',
                       busy ||
                               grade * classNo * number == 0 ||
                               remote && !RegExp(r'^\d{4}$').hasMatch(pin.text)

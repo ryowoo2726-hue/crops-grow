@@ -28,9 +28,15 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     socket = new WebSocket(pages.find(p => p.type === 'page').webSocketDebuggerUrl);
     await new Promise(resolve => socket.addEventListener('open', resolve, {once: true}));
     let sequence = 0;
-    const pending = new Map(), errors = [], harvestImages = new Map();
+    const pending = new Map(), errors = [], harvestImages = new Map(), cropImages = new Map(), missionRequests = [];
     socket.addEventListener('message', event => {
       const m = JSON.parse(event.data);
+      if (m.method === 'Network.requestWillBeSent') {
+        const url=m.params.request.url;
+        if (/\/rice-stage-0[1-4]-[a-f0-9]+\.webp/.test(url)) cropImages.set(m.params.requestId,{url,complete:false});
+        if (/\/api\/(quizzes|missions)\/current/.test(url)) missionRequests.push(url);
+      }
+      if (m.method === 'Network.loadingFinished' && cropImages.has(m.params.requestId)) cropImages.get(m.params.requestId).complete=true;
       if (m.method === 'Network.requestWillBeSent' && /\/rice-harvest-[a-f0-9]+\.webp/.test(m.params.request.url)) {
         harvestImages.set(m.params.requestId, {complete:false});
       }
@@ -85,6 +91,8 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     fs.writeFileSync(path.join(os.tmpdir(), 'growgame-flutter-login.png'), Buffer.from(loginShot.data, 'base64'));
     await clickText('시작하기');
     await wait("document.querySelector('flt-semantics-host')?.textContent.includes('0 / 100%')");
+    assert.equal(new Set([...cropImages.values()].filter(image=>image.complete).map(image=>image.url)).size,4,'입장 전에 현재 작물의 네 성장 이미지 준비');
+    assert.ok([...harvestImages.values()].some(image=>image.complete),'입장 전에 수확 이미지 준비');
     const farmShot = await send('Page.captureScreenshot');
     fs.writeFileSync(path.join(os.tmpdir(), 'growgame-flutter-mission-cards.png'), Buffer.from(farmShot.data, 'base64'));
     await clickText('미션');
@@ -101,6 +109,7 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     assert.equal(app.store.snapshot(1).progress,50);
     await clickText('미션'); await clickText('퀴즈 미션');
     await wait("document.querySelector('flt-semantics-host')?.textContent.includes('이번 주 퀴즈 질문')");
+    assert.equal(missionRequests.length,0,'로그인에서 받은 미션으로 열기: 추가 GET 요청 없음');
     await clickText('정답 보기'); await clickText('정답 확인');
     await wait("document.querySelector('flt-semantics-host')?.textContent.includes('정답이에요!')");
     await clickText('미션 완료');

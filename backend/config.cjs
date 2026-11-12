@@ -8,4 +8,4 @@ function dataDirectory(args = process.argv.slice(2)) {
   if (!directory || !path.isAbsolute(directory)) throw Error('먼저 backend/start.ps1에서 저장 폴더를 선택하거나 --data-dir 절대경로를 지정하세요.');
   return path.resolve(directory);
 }
-module.exports = {dataDirectory};
+module.exports = {dataDirectory,configFile};
