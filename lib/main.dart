@@ -13,6 +13,7 @@ import 'local_test_data.dart';
 import 'missions.dart';
 import 'missions/quiz/content.dart';
 import 'missions/quiz/popup.dart';
+import 'missions/quiz/set_popup.dart';
 import 'missions/special/popup.dart';
 import 'storage_stub.dart' if (dart.library.js_interop) 'storage.dart';
 
@@ -319,9 +320,10 @@ class _FarmGameState extends State<FarmGame>
     String kind, {
     String? crop,
     int? missionRevision,
+    int? quizRunId,
   }) async {
     final session = backend.token;
-    final key = '$kind-$crop-$missionRevision';
+    final key = '$kind-$crop-$missionRevision-$quizRunId';
     final requestId = pendingRequests.putIfAbsent(
       key,
       () =>
@@ -333,6 +335,7 @@ class _FarmGameState extends State<FarmGame>
         'requestId': requestId,
         if (crop != null) 'cropId': crop,
         if (missionRevision != null) 'missionRevision': missionRevision,
+        if (quizRunId != null) 'runId': quizRunId,
       });
       pendingRequests.remove(key);
       if (!mounted || record == null || backend.token != session) return null;
@@ -750,8 +753,9 @@ class _FarmGameState extends State<FarmGame>
     String kind, {
     String? missionType,
     int? missionRevision,
+    int? quizRunId,
   }) async {
-    if (busy || !cropReady || !canGrow(r, kind)) return;
+    if (busy || !cropReady || (quizRunId == null && !canGrow(r, kind))) return;
     final before = (r['progress'] as num).toDouble();
     final animate = !MediaQuery.disableAnimationsOf(context);
     setState(() {
@@ -760,8 +764,13 @@ class _FarmGameState extends State<FarmGame>
     });
     final request = remote
         ? remoteAction(
-            kind == 'mission' ? missionType! : kind,
+            quizRunId != null
+                ? 'quiz-set'
+                : kind == 'mission'
+                ? missionType!
+                : kind,
             missionRevision: missionRevision,
+            quizRunId: quizRunId,
           )
         : null;
     if (!remote) {
@@ -864,8 +873,109 @@ class _FarmGameState extends State<FarmGame>
     await grow('mission');
   }
 
+  Future<void> dailyQuiz() async {
+    final session = backend.token;
+    Map<String, dynamic> catalogue;
+    setState(() => busy = true);
+    try {
+      catalogue = await backend.call('GET', '/api/quiz-subjects');
+    } catch (error) {
+      remoteError(error);
+      return;
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+    if (!mounted || record == null || backend.token != session) return;
+    final subjects = catalogue['subjects'] as List;
+    final subject = await popup<String>(
+      '오늘의 과목별 퀴즈',
+      (context, _) => Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (subjects.isEmpty) const Text('과목별 퀴즈를 준비하고 있어요.'),
+          for (final item in subjects)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: OutlinedButton(
+                onPressed: () =>
+                    Navigator.pop(context, item['subject'] as String),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  child: Text(
+                    '${item['subject']} · ${item['completed'] == true
+                        ? item['claimed'] == true
+                              ? '오늘 완료 · 정답 보기'
+                              : '정답 보기 · 보상 받기'
+                        : item['remaining'] == 0
+                        ? '새 문제 준비 중'
+                        : '오늘의 10문제'}',
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+    if (subject == null ||
+        !mounted ||
+        record == null ||
+        backend.token != session)
+      return;
+    Map<String, dynamic> run;
+    setState(() => busy = true);
+    try {
+      run = await backend.call('POST', '/api/quiz-runs', {'subject': subject});
+    } catch (error) {
+      remoteError(error);
+      return;
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+    if (!mounted || record == null || backend.token != session) return;
+    await popup<void>(
+      '$subject 퀴즈',
+      (_, _) => QuizSetPopup(
+        questions: parseQuizQuestions(run['questions']),
+        result: run['result'] as Map<String, dynamic>?,
+        claimed: run['claimed'] == true,
+        submit: (answers) async {
+          final response = await backend.call('POST', '/api/quiz-runs/submit', {
+            'runId': run['id'],
+            'answers': answers,
+          });
+          if (backend.token != session)
+            throw const ApiException('다시 입장해 주세요.', 401);
+          run = response;
+          return response['result'] as Map<String, dynamic>;
+        },
+      ),
+    );
+    if (!mounted ||
+        record == null ||
+        backend.token != session ||
+        run['result'] == null ||
+        run['claimed'] == true)
+      return;
+    final growth = (run['result'] as Map)['growth'] as int;
+    if (growth == 0) {
+      setState(() => busy = true);
+      await remoteAction('quiz-set', quizRunId: run['id'] as int);
+      if (mounted) setState(() => busy = false);
+    } else if (r['cropId'] == null || (r['progress'] as num) >= 100) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('수확하고 작물을 심은 뒤 퀴즈를 다시 열면 영양분을 받을 수 있어요.')),
+      );
+    } else {
+      await grow('mission', quizRunId: run['id'] as int);
+    }
+  }
+
   Future<void> remoteMission(String type) async {
     if (busy || record == null) return;
+    if (type == 'quiz') {
+      await dailyQuiz();
+      return;
+    }
     setState(() => busy = true);
     Map<String, dynamic> data;
     try {
@@ -875,10 +985,7 @@ class _FarmGameState extends State<FarmGame>
               const Duration(seconds: 60);
       data = fresh && missionData.containsKey(type)
           ? missionData[type]!
-          : await backend.call(
-              'GET',
-              type == 'quiz' ? '/api/quizzes/current' : '/api/missions/current',
-            );
+          : await backend.call('GET', '/api/missions/current');
       if (!mounted || record == null) return;
       setState(() => disconnected = false);
     } catch (error) {
@@ -895,45 +1002,10 @@ class _FarmGameState extends State<FarmGame>
             ),
           )
         : null;
-    final revision = type == 'quiz'
-        ? data['revision'] as int
-        : (data['mission'] as Map?)?['revision'] as int?;
-    late final List<QuizQuestion> questions;
-    try {
-      questions = type == 'quiz'
-          ? parseQuizQuestions(data['questions'])
-          : const <QuizQuestion>[];
-    } catch (error) {
-      remoteError(error);
-      return;
-    }
+    final revision = (data['mission'] as Map?)?['revision'] as int?;
     final complete = await popup<bool>(
-      type == 'quiz' ? '퀴즈 미션' : '특별 미션',
-      (_, _) => type == 'quiz'
-          ? QuizMissionPopup(
-              questions: questions,
-              canComplete: eligible,
-              checkAnswer: (question, answer) async {
-                try {
-                  final result = await backend
-                      .call('POST', '/api/quizzes/check', {
-                        'week': data['week'],
-                        'revision': revision,
-                        'questionId': question.id,
-                        'answerIndex': answer,
-                      });
-                  if (mounted) setState(() => disconnected = false);
-                  return QuizFeedback(
-                    result['correct'] == true,
-                    result['explanation'] as String? ?? '',
-                  );
-                } catch (error) {
-                  remoteError(error);
-                  rethrow;
-                }
-              },
-            )
-          : SpecialMissionPopup(mission: mission, canComplete: eligible),
+      '특별 미션',
+      (_, _) => SpecialMissionPopup(mission: mission, canComplete: eligible),
     );
     if (complete == true && mounted && record != null)
       await grow('mission', missionType: type, missionRevision: revision);

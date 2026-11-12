@@ -5,9 +5,18 @@ const fs = require('node:fs');
 const path = require('node:path');
 const {createAdmin,readCredentials} = require('./admin.cjs');
 
-function createBackend({directory,origins=['http://localhost:4174','http://127.0.0.1:4174'],now=Date.now,dailyLimit=false,adminCredentials=null} = {}) {
+function createBackend({directory,origins=['http://localhost:4174','http://127.0.0.1:4174'],now=Date.now,dailyLimit=false,adminCredentials=null,quizBankFile=null} = {}) {
   const store = openStore(directory,{now,dailyLimit});
   const admin = createAdmin(store,{credentials:adminCredentials,now});
+  let quizBankStamp = '';
+  function syncQuizBank() {
+    if (!quizBankFile || !fs.existsSync(quizBankFile)) return;
+    const stat = fs.statSync(quizBankFile);
+    const stamp = `${stat.mtimeMs}-${stat.size}`;
+    if (stamp === quizBankStamp) return;
+    quizBankStamp = stamp;
+    store.quizBank.importSets(JSON.parse(fs.readFileSync(quizBankFile,'utf8').replace(/^\uFEFF/,'')));
+  }
   const server = http.createServer(async(req,res)=>{
     const origin = req.headers.origin;
     const isAdminRequest = req.url.startsWith('/api/admin/');
@@ -46,6 +55,12 @@ function createBackend({directory,origins=['http://localhost:4174','http://127.0
       const token = (req.headers.authorization||'').replace(/^Bearer /,'');
       if (url.pathname.startsWith('/api/admin/')) { await admin.handle(url.pathname,req.method,input,token,reply); return; }
       const playerId = store.authenticate(token);
+      if (url.pathname==='/api/quiz-subjects' || url.pathname==='/api/quiz-runs') {
+        try { syncQuizBank(); } catch { console.error('퀴즈 JSON 형식을 확인하세요. 마지막으로 정상 등록한 문제를 유지합니다.'); }
+      }
+      if (req.method==='GET' && url.pathname==='/api/quiz-subjects') { reply(200,store.quizBank.subjects(playerId)); return; }
+      if (req.method==='POST' && url.pathname==='/api/quiz-runs') { reply(200,store.quizBank.start(playerId,input)); return; }
+      if (req.method==='POST' && url.pathname==='/api/quiz-runs/submit') { reply(200,store.quizBank.submit(playerId,input)); return; }
       if (req.method==='POST' && url.pathname==='/api/logout') {
         store.db.prepare('DELETE FROM sessions WHERE token_hash=?').run(require('node:crypto').createHash('sha256').update(token).digest('hex'));
         reply(200,{ok:true}); return;
@@ -68,7 +83,7 @@ function createBackend({directory,origins=['http://localhost:4174','http://127.0
 }
 if(require.main===module) {
   const directory=dataDirectory();
-  const {server,store}=createBackend({directory,origins:(process.env.FRONTEND_ORIGINS||'https://cropgrow.sangsangbar.com,http://localhost:4174,http://127.0.0.1:4174').split(',').map(x=>x.trim()).filter(Boolean),dailyLimit:process.env.DAILY_LIMIT==='true',adminCredentials:readCredentials()});
+  const {server,store}=createBackend({directory,origins:(process.env.FRONTEND_ORIGINS||'https://cropgrow.sangsangbar.com,http://localhost:4174,http://127.0.0.1:4174').split(',').map(x=>x.trim()).filter(Boolean),dailyLimit:process.env.DAILY_LIMIT==='true',adminCredentials:readCredentials(),quizBankFile:path.join(__dirname,'content','quiz-bank.json')});
   server.listen(Number(process.env.PORT)||8787,'127.0.0.1',()=>{
     const base=`http://127.0.0.1:${server.address().port}`;
     console.log(`GrowGame API: ${base}\n관리자: ${base}/admin/\nDB 폴더: ${directory}`);

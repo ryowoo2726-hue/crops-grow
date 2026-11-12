@@ -7,6 +7,100 @@ const {backup}=require('node:sqlite');
 const {createBackend}=require('./server.cjs');
 const {hashPassword}=require('./admin.cjs');
 
+test('과목별 하루 10문제, 완료 이력, 일괄 채점과 보상은 재시도·재시작에도 유지',async t=>{
+  const directory=fs.mkdtempSync(path.join(os.tmpdir(),'growgame-quiz-sets-'));
+  const bankFile=path.join(directory,'bank.json');
+  const set=(id,subject='영어')=>({id,subject,title:id,questions:Array.from({length:10},(_,i)=>({
+    question:`${id} 문제 ${i+1}`,choices:['A','B','C','D'],correctIndex:i%4,explanation:`해설 ${i+1}`,
+  }))});
+  const bank={sets:[set('english-1'),set('english-2'),set('science-1','과학')]};
+  fs.writeFileSync(bankFile,JSON.stringify(bank));
+  let clock=Date.parse('2026-11-12T14:59:00Z'); // Seoul midnight is one minute later.
+  let app=createBackend({directory,now:()=>clock,dailyLimit:true,quizBankFile:bankFile});
+  await new Promise(resolve=>app.server.listen(0,'127.0.0.1',resolve));
+  t.after(async()=>{if(app.server.listening) await new Promise(resolve=>app.server.close(resolve));app.store.db.close();assert.ok(directory.startsWith(path.resolve(os.tmpdir())+path.sep));fs.rmSync(directory,{recursive:true,force:true});});
+  let base=`http://127.0.0.1:${app.server.address().port}`;
+  const login=await app.store.login({grade:1,classNo:1,number:1},'1234');
+  const other=await app.store.login({grade:1,classNo:1,number:2},'4321');
+  const player=app.store.authenticate(login.token);
+  async function request(route,body,token=login.token){
+    const r=await fetch(base+route,{method:body?'POST':'GET',headers:{...(body?{'Content-Type':'application/json'}:{}),Authorization:`Bearer ${token}`},body:body?JSON.stringify(body):undefined});
+    return {status:r.status,data:await r.json()};
+  }
+  assert.equal((await request('/api/quiz-subjects',null,'')).status,401);
+  assert.equal((await request('/api/quiz-subjects')).data.subjects.length,2);
+  const run=(await request('/api/quiz-runs',{subject:'영어'})).data;
+  assert.equal(run.questions.length,10);
+  assert.ok(!JSON.stringify(run).includes('correctIndex'));
+  assert.equal((await request('/api/quiz-runs',{subject:'영어'})).data.id,run.id);
+  assert.equal((await request('/api/quiz-runs/submit',{runId:run.id,answers:[0]})).status,400);
+  const answers=Array.from({length:10},(_,i)=>i<3?i%4:(i+1)%4);
+  assert.equal((await request('/api/quiz-runs/submit',{runId:run.id,answers},other.token)).status,404);
+  const result=await request('/api/quiz-runs/submit',{runId:run.id,answers});
+  assert.equal(result.data.result.correctCount,3);
+  assert.equal(result.data.result.growth,30);
+  assert.equal(app.store.snapshot(player).progress,0,'채점만으로 성장하지 않음');
+  assert.equal((await request('/api/quiz-runs/submit',{runId:run.id,answers:Array.from({length:10},(_,i)=>i%4)})).data.result.correctCount,3,'첫 채점은 불변');
+  // Reward collection can be resumed after midnight and a process restart.
+  clock+=120000;
+  await new Promise(resolve=>app.server.close(resolve));app.store.db.close();
+  app=createBackend({directory,now:()=>clock,dailyLimit:true,quizBankFile:bankFile});
+  await new Promise(resolve=>app.server.listen(0,'127.0.0.1',resolve));base=`http://127.0.0.1:${app.server.address().port}`;
+  assert.equal((await request('/api/quiz-runs',{subject:'영어'})).data.id,run.id);
+  const claim={kind:'quiz-set',runId:run.id,requestId:'quiz-set-claim-0001'};
+  assert.equal((await request('/api/actions',claim)).data.state.progress,30);
+  assert.equal((await request('/api/actions',claim)).data.state.progress,30);
+  assert.equal((await request('/api/actions',{...claim,requestId:'quiz-set-claim-0002'})).data.state.progress,30,'새 요청 번호로도 중복 보상 없음');
+  const next=(await request('/api/quiz-runs',{subject:'영어'})).data;
+  assert.notEqual(next.setId,run.setId);
+  assert.equal((await request('/api/actions',{...claim,runId:next.id})).status,409);
+  const science=(await request('/api/quiz-runs',{subject:'과학'})).data;
+  await request('/api/quiz-runs/submit',{runId:science.id,answers:Array(10).fill(0)});
+  assert.equal((await request('/api/actions',{kind:'quiz-set',runId:science.id,requestId:'science-claim-0001'})).data.state.progress,60,'과목별 보상은 특별 미션 일일 제한과 독립');
+  const allCorrect=Array.from({length:10},(_,i)=>i%4);
+  await request('/api/quiz-runs/submit',{runId:next.id,answers:allCorrect});
+  assert.equal((await request('/api/actions',{kind:'quiz-set',runId:next.id,requestId:'english-claim-0003'})).data.state.progress,100,'성장도 100% 상한');
+  assert.equal((await request('/api/quiz-runs',{subject:'영어'})).data.id,next.id,'완료한 날에는 같은 결과 조회');
+  clock+=86400000;
+  login.token=(await app.store.login({grade:1,classNo:1,number:1},'1234')).token;
+  assert.equal((await request('/api/quiz-runs',{subject:'영어'})).status,409,'모든 세트를 소진하면 반복 출제하지 않음');
+  // Live file changes import once. Invalid edits leave the previous bank usable.
+  const extra=set('english-3');bank.sets.push(extra);fs.writeFileSync(bankFile,JSON.stringify(bank));
+  const added=(await request('/api/quiz-runs',{subject:'영어'})).data;
+  assert.equal(added.setId,'english-3');
+  const duplicate=set('english-4');duplicate.questions[0]=extra.questions[0];
+  assert.throws(()=>app.store.quizBank.importSets({sets:[duplicate]}),/이미 다른 세트/);
+  assert.equal(app.store.db.prepare('SELECT COUNT(*) n FROM quiz_sets WHERE id=?').get('english-4').n,0);
+  // A newly assigned snapshot retains answers while the teacher edits the source.
+  bank.sets.at(-1).questions[0].correctIndex=3;fs.writeFileSync(bankFile,JSON.stringify(bank));
+  await request('/api/quiz-subjects');
+  assert.equal((await request('/api/quiz-runs/submit',{runId:added.id,answers:allCorrect})).data.result.correctCount,10);
+  const profile={grade:1,classNo:1,number:1};app.store.deleteStudent(profile);
+  assert.equal(app.store.db.prepare('SELECT COUNT(*) n FROM quiz_runs WHERE player_id=?').get(player).n,0);
+  assert.equal(app.store.db.prepare('SELECT COUNT(*) n FROM quiz_sets').get().n,4,'학생 삭제 후 공통 문제 보존');
+  const secondSession=await app.store.login({grade:1,classNo:1,number:2},'4321');
+  const second=app.store.authenticate(secondSession.token);
+  const empty=app.store.quizBank.start(second,{subject:'영어'});
+  app.store.quizBank.submit(second,{runId:empty.id,answers:Array.from({length:10},(_,i)=>(i+1)%4)});
+  app.store.db.prepare('UPDATE players SET progress=100 WHERE id=?').run(second);
+  assert.equal(app.store.action(second,{kind:'quiz-set',runId:empty.id,requestId:'zero-growth-000001'}).growth,0,'0점도 완료되고 보상은 없음');
+  const pending=app.store.quizBank.start(second,{subject:'과학'});
+  app.store.quizBank.submit(second,{runId:pending.id,answers:allCorrect});
+  assert.throws(()=>app.store.action(second,{kind:'quiz-set',runId:pending.id,requestId:'pending-growth-0001'}),/수확/);
+  assert.equal(app.store.db.prepare('SELECT claimed FROM quiz_runs WHERE id=?').get(pending.id).claimed,0,'받지 못한 보상 유지');
+  app.store.action(second,{kind:'harvest',requestId:'pending-harvest-001'});
+  app.store.action(second,{kind:'plant',cropId:'apple',requestId:'pending-plant-00001'});
+  assert.equal(app.store.action(second,{kind:'quiz-set',runId:pending.id,requestId:'pending-growth-0001'}).state.progress,100);
+  fs.writeFileSync(bankFile,'{ invalid JSON');
+  assert.equal((await request('/api/quiz-subjects',null,secondSession.token)).data.subjects.length,2,'JSON 오류에도 마지막 정상 문제 유지');
+  // Upgrade an existing v1 database without losing students and harvests.
+  await new Promise(resolve=>app.server.close(resolve));
+  app.store.db.exec('DROP TABLE quiz_runs; DROP TABLE quiz_sets; PRAGMA user_version=1;');app.store.db.close();
+  app=createBackend({directory,now:()=>clock});
+  assert.equal(app.store.db.prepare('PRAGMA user_version').get().user_version,2);
+  assert.equal(app.store.snapshot(second).harvestCount,1);
+});
+
 test('관리자 인증, 학생 목록, PIN 변경, 권한 분리와 만료',async t=>{
   const directory=fs.mkdtempSync(path.join(os.tmpdir(),'growgame-admin-'));
   let clock=Date.parse('2026-11-12T00:00:00Z');

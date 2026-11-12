@@ -21,8 +21,9 @@ function openStore(directory, {now = Date.now, dailyLimit = false} = {}) {
   fs.mkdirSync(directory, {recursive:true});
   const db = new DatabaseSync(path.join(directory, 'growgame.sqlite'));
   const version = db.prepare('PRAGMA user_version').get().user_version;
-  if (version > 1) { db.close(); throw Error('이 서버보다 새로운 DB입니다. 서버를 업데이트하세요.'); }
+  if (version > 2) { db.close(); throw Error('이 서버보다 새로운 DB입니다. 서버를 업데이트하세요.'); }
   db.exec(fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8'));
+  const quizBank = require('./quiz-bank.cjs').createQuizBank(db, {now, dayAt, fail});
   db.prepare('DELETE FROM sessions WHERE expires_at < ?').run(now());
   db.prepare('DELETE FROM action_receipts WHERE created_at < ?').run(now() - 7 * 86400000);
   const getPlayer = id => db.prepare('SELECT * FROM players WHERE id=?').get(id);
@@ -118,7 +119,7 @@ function openStore(directory, {now = Date.now, dailyLimit = false} = {}) {
   const special = () => db.prepare('SELECT week,title,description,revision FROM special_missions WHERE week=?').get(weekAt(now())) || null;
   function action(playerId, input) {
     if (typeof input.requestId !== 'string' || !/^[a-zA-Z0-9_-]{16,100}$/.test(input.requestId)) fail(400,'요청 번호가 올바르지 않아요.');
-    const fingerprint = JSON.stringify([input.kind,input.cropId??null,input.missionRevision??null]);
+    const fingerprint = JSON.stringify([input.kind,input.cropId??null,input.missionRevision??null,...(input.kind==='quiz-set'?[input.runId]:[])]);
     db.exec('BEGIN IMMEDIATE');
     try {
       const previous = db.prepare('SELECT * FROM action_receipts WHERE player_id=? AND request_id=?').get(playerId,input.requestId);
@@ -128,7 +129,11 @@ function openStore(directory, {now = Date.now, dailyLimit = false} = {}) {
       }
       const p = getPlayer(playerId), day = dayAt(now());
       let outcome = {};
-      if (input.kind==='plant') {
+      if (input.kind==='quiz-set') {
+        const growth=quizBank.claim(playerId,input.runId);
+        db.prepare('UPDATE players SET progress=MIN(100,progress+?),revision=revision+1 WHERE id=?').run(growth,playerId);
+        outcome={growth};
+      } else if (input.kind==='plant') {
         if (p.crop_id!==null || !crops.has(input.cropId)) fail(409,'심을 수 있는 작물을 선택해 주세요.');
         db.prepare('UPDATE players SET crop_id=?,progress=0,revision=revision+1 WHERE id=?').run(input.cropId,playerId);
       } else if (input.kind==='harvest') {
@@ -143,6 +148,7 @@ function openStore(directory, {now = Date.now, dailyLimit = false} = {}) {
         const field = input.kind==='water'?'water_day':'mission_day';
         if (dailyLimit && p[field]===day) fail(409,'오늘 보상은 이미 받았어요.');
         if (input.kind==='quiz') {
+          if (db.prepare('SELECT 1 FROM quiz_sets LIMIT 1').get()) fail(409,'과목별 퀴즈를 다시 열어 주세요.');
           const q = quiz();
           const solved = db.prepare('SELECT COUNT(*) count FROM quiz_answers WHERE player_id=? AND week=? AND revision=?').get(playerId,q.week,q.revision).count;
           if (!q.questions.length || solved!==q.questions.length || input.missionRevision!==q.revision) fail(409,'이번 주 퀴즈를 모두 맞혀 주세요.');
@@ -186,6 +192,6 @@ function openStore(directory, {now = Date.now, dailyLimit = false} = {}) {
     if (!input || !validWeek(input.week) || typeof input.title!=='string' || !input.title.trim() || input.title.length>60 || typeof input.description!=='string' || !input.description.trim() || input.description.length>600) fail(400,'특별 미션의 월요일 날짜, 제목과 내용을 확인하세요.');
     db.prepare('INSERT INTO special_missions(week,title,description) VALUES(?,?,?) ON CONFLICT(week) DO UPDATE SET title=excluded.title,description=excluded.description,revision=revision+1').run(input.week,input.title.trim(),input.description.trim());
   }
-  return {db,login,resetPin,deleteStudent,authenticate,snapshot,quiz,checkAnswer,special,action,garden,importQuiz,importSpecial};
+  return {db,login,resetPin,deleteStudent,authenticate,snapshot,quiz,checkAnswer,special,action,garden,importQuiz,importSpecial,quizBank};
 }
 module.exports = {openStore,ApiError,dayAt,weekAt};

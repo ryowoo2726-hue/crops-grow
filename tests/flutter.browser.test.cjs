@@ -14,7 +14,8 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
   const startApi = () => new Promise(resolve => app.server.listen(apiPort, '127.0.0.1', resolve));
   const stopApi = () => new Promise(resolve => app.server.close(resolve));
   await startApi();
-  app.store.importQuiz({week:weekAt(Date.now()), questions:[{question:'이번 주 퀴즈 질문',choices:['정답 보기','다른 보기','세 번째 보기','네 번째 보기'],correctIndex:0,explanation:'정답 해설입니다.'}]});
+  app.store.quizBank.importSets({sets:[{id:'english-browser-001',subject:'영어',title:'영어 테스트',
+    questions:Array.from({length:10},(_,i)=>({question:`영어 테스트 문제 ${i+1}`,choices:['첫 번째 답','두 번째 답','세 번째 답','네 번째 답'],correctIndex:i<3?0:1,explanation:'정답 해설입니다.'}))}]});
   app.store.importSpecial({week:weekAt(Date.now()),title:'친구에게 고마운 마음 전하기',description:'오늘 고마웠던 친구 한 명에게 감사한 이유를 전해보세요.'});
   const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'growgame-flutter-'));
   const proc = spawn(process.env.CHROME_PATH || 'C:/Program Files/Google/Chrome/Application/chrome.exe',
@@ -133,11 +134,19 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     await sleep(1900);
     assert.equal(app.store.snapshot(1).progress,50);
     await clickText('미션'); await clickText('퀴즈 미션');
-    await wait("document.querySelector('flt-semantics-host')?.textContent.includes('이번 주 퀴즈 질문')");
+    await clickText('영어 · 오늘의 10문제');
+    await wait("document.querySelector('flt-semantics-host')?.textContent.includes('영어 테스트 문제 1')");
     assert.equal(missionRequests.length,0,'로그인에서 받은 미션으로 열기: 추가 GET 요청 없음');
-    await clickText('정답 보기'); await clickText('정답 확인');
-    await wait("document.querySelector('flt-semantics-host')?.textContent.includes('정답이에요!')");
-    await clickText('미션 완료');
+    for(let i=1;i<=10;i++) {
+      await wait(`document.querySelector('flt-semantics-host')?.textContent.includes('영어 테스트 문제 ${i}')`);
+      await clickText('첫 번째 답');
+      await clickText(i===10?'채점하고 정답 보기':'다음 문제');
+    }
+    await wait("document.querySelector('flt-semantics-host')?.textContent.includes('10문제 중 3문제 정답')");
+    assert.equal(app.store.snapshot(1).progress,50,'정답 확인 중에는 성장 보상 대기');
+    const reviewShot=await send('Page.captureScreenshot');
+    fs.writeFileSync(path.join(os.tmpdir(),'growgame-quiz-set-review.png'),Buffer.from(reviewShot.data,'base64'));
+    await clickText('닫기');
     await wait("document.querySelector('flt-semantics-host')?.textContent.includes('80 / 100%')");
     await sleep(1900);
     await send('Fetch.enable',{patterns:[{urlPattern:'*/api/actions',requestStage:'Request'}]});

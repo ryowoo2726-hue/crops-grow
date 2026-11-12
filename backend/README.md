@@ -1,12 +1,16 @@
 # 노트북 백엔드 준비
 
+## 과목별 퀴즈 세트 (2026-11-12)
+
+`backend/content/quiz-bank.json`을 수정·저장하면 학생의 다음 과목 목록/퀴즈 요청에서 자동 반영됩니다. 영어·과학·역사 예시를 각 10문제씩 현재 PC에 준비했습니다. 새 서버에서는 quiz-bank.template.json을 해당 경로로 복사합니다. 과목별 100문제는 10문제 세트 10개로 작성하세요. 데이터 편집과 학생별 일일 제한·채점·보상 규칙은 [미션 운영 안내](../lib/missions/README.md)에 정리했습니다. 현재 API·Tunnel은 종료 상태이며 다음 실행부터 적용됩니다.
+
 ## 현재 실행 방법 (2026-11-12 갱신)
 
-최적화 GitHub/Pages 배포와 외부 테스트 완료. 현재 이 PC의 테스트 API·Tunnel이 가동 중입니다. 새 게임 API 경로의 동시 health 300건 실패 0, p95 80~190ms를 확인했습니다. 종료 후 터널 정리·숨김 재시작 검증은 자동 승인 검토에 차단되어 미검증이며 서비스/부팅 자동 시작은 설치하지 않았습니다.
+최적화 GitHub/Pages 배포와 외부 테스트 완료. 사용자 요청으로 현재 이 PC의 테스트 API·Tunnel을 종료했습니다. 새 게임 API 경로의 동시 health 300건 실패 0, p95 80~190ms를 확인했습니다. 종료 후 터널 정리·숨김 재시작 검증은 자동 승인 검토에 차단되어 미검증이며 서비스/부팅 자동 시작은 설치하지 않았습니다.
 
 `GrowGame 시작.cmd` 또는 `backend/start.ps1` 하나로 API와 Cloudflare Tunnel을 함께 시작합니다. 실행 창을 유지하고 종료할 때 Ctrl+C를 누르세요. `-LocalOnly`는 터널 없이 API만 실행합니다. 공인 IP가 바뀌어도 Tunnel이 현재 PC에서 다시 연결하므로 DNS의 IP를 수동 변경하지 않습니다. 새 PC에는 Node/cloudflared 설치, DB 폴더 선택과 최초 Tunnel 인증이 필요합니다. 토큰은 해당 Windows 사용자의 DPAPI로 암호화합니다. 서로 다른 DB를 가진 컴퓨터 두 대에서 같은 Tunnel을 동시에 실행하지 마세요.
 
-현재 PC는 사용자 지정 **테스트 서버**이며 DB는 `%LOCALAPPDATA%\growgame-test-data`입니다. 기존 공식 학생 DB와 구분합니다. 게임은 `https://cropgrow.sangsangbar.com`, API 전달 경로는 같은 도메인의 `/api/*` → Cloudflare → `cropgrow-api.sangsangbar.com` Tunnel → 이 PC의 8787입니다. 관리자 주소는 기존 API 도메인의 `/admin/`을 사용합니다. 이 PC의 관리자 비밀번호는 아직 설정하지 않았습니다.
+현재 PC는 사용자 지정 **테스트 서버**이며 DB는 `%LOCALAPPDATA%\growgame-test-data`입니다. 기존 공식 학생 DB와 구분합니다. 게임은 `https://cropgrow.sangsangbar.com`, API 전달 경로는 같은 도메인의 `/api/*` → Cloudflare → `cropgrow-api.sangsangbar.com` Tunnel → 이 PC의 8787입니다. 관리자 주소는 기존 API 도메인의 `/admin/`을 사용합니다. 이 PC의 관리자 비밀번호는 사용자 지정값의 해시로 설정했고 다음 서버 실행부터 적용됩니다.
 
 보조 한자 폰트는 입장을 막지 않고 뒤에서 로드하며, 현재 작물 이미지들은 함께 준비합니다. API 응답은 캐시하지 않고 이미지·코드의 기존 해시 캐시를 유지합니다. 최신 배포/검증 결과는 인수인계 문서의 맨 위를 확인하세요. 아래 내용은 과거 실행 이력입니다.
 

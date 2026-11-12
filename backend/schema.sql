@@ -43,4 +43,17 @@ CREATE TABLE IF NOT EXISTS action_receipts (
   fingerprint TEXT NOT NULL, outcome TEXT NOT NULL, created_at INTEGER NOT NULL,
   PRIMARY KEY(player_id, request_id)
 ) STRICT;
-PRAGMA user_version = 1;
+CREATE TABLE IF NOT EXISTS quiz_sets (
+  id TEXT PRIMARY KEY, subject TEXT NOT NULL, title TEXT NOT NULL,
+  questions_json TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1))
+) STRICT;
+CREATE TABLE IF NOT EXISTS quiz_runs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  player_id INTEGER NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+  day TEXT NOT NULL, subject TEXT NOT NULL, set_id TEXT NOT NULL REFERENCES quiz_sets(id),
+  questions_json TEXT NOT NULL, result_json TEXT,
+  claimed INTEGER NOT NULL DEFAULT 0 CHECK(claimed IN (0,1)),
+  UNIQUE(player_id, subject, day)
+) STRICT;
+CREATE INDEX IF NOT EXISTS quiz_runs_history ON quiz_runs(player_id, set_id);
+PRAGMA user_version = 2;

@@ -8,11 +8,15 @@ const {dataDirectory} = require('./config.cjs');
   const store=openStore(dataDirectory(args));
   try {
     if (command==='init') { console.log('데이터베이스 준비 완료'); }
-    else if (command==='import-quiz' || command==='import-special') {
+    else if (command==='import-quiz' || command==='import-special' || command==='import-quiz-bank') {
       if (!file || file.startsWith('--')) throw Error('가져올 JSON 파일을 지정하세요.');
       const input=JSON.parse(fs.readFileSync(file,'utf8').replace(/^\uFEFF/,''));
-      command==='import-quiz'?store.importQuiz(input):store.importSpecial(input);
-      console.log(`${input.week} 미션 저장 완료`);
+      if(command==='import-quiz-bank') {
+        console.log(`퀴즈 세트 ${store.quizBank.importSets(input).sets}개 저장 완료`);
+      } else {
+        command==='import-quiz'?store.importQuiz(input):store.importSpecial(input);
+        console.log(`${input.week} 미션 저장 완료`);
+      }
     } else if(command==='reset-pin') {
       if(!process.stdin.isTTY) throw Error('PIN 초기화는 노트북 터미널에서 직접 실행하세요.');
       const prompt=require('node:readline/promises').createInterface({input:process.stdin,output:process.stdout});
@@ -28,6 +32,6 @@ const {dataDirectory} = require('./config.cjs');
       fs.mkdirSync(path.dirname(destination),{recursive:true});
       await backup(store.db,destination);
       console.log('백업 완료');
-    } else throw Error('명령: init | import-quiz 파일.json | import-special 파일.json | backup 백업.sqlite | reset-pin 학년 반 번호');
+    } else throw Error('명령: init | import-quiz-bank 파일.json | import-quiz 파일.json | import-special 파일.json | backup 백업.sqlite | reset-pin 학년 반 번호');
   } finally { store.db.close(); }
 })().catch(error=>{console.error(error.message);process.exitCode=1;});
