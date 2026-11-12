@@ -5,7 +5,8 @@ Flutter Web 프론트와 현재 서버 노트북에서 실행하는 Node.js + SQ
 **다른 AI 또는 다음 작업은 [프로젝트 인수인계 문서](docs/PROJECT_HANDOFF.md)를 먼저 읽어주세요.** 현재 상태·규칙·API·DB·검증·주의할 오류와 남은 작업을 기록합니다.
 
 - 프론트 주소: `https://cropgrow.sangsangbar.com`
-- API 주소: `https://cropgrow-api.sangsangbar.com`
+- 게임 API: `https://cropgrow.sangsangbar.com/api/*` (Pages에서 PC의 Tunnel로 전달)
+- 관리자/직접 API: `https://cropgrow-api.sangsangbar.com`
 - GitHub `main`과 Cloudflare Pages `cropgrow`를 연결했습니다. push하면 자동 배포됩니다. 프론트 도메인은 `cropgrow.sangsangbar.com`입니다. 2026-11-12 사용자가 백엔드와 Tunnel을 실행한 뒤 외부 API 200을 확인했습니다. 다만 실제 인터넷 조회에 지연·시간 초과·502가 관찰되어 [실제 인터넷 진단](docs/INTERNET_PERFORMANCE_REPORT.md)의 개선 항목이 남아 있습니다.
 
 ## 웹 로딩 최적화 (2026-11-11)
@@ -19,6 +20,8 @@ Flutter Web 프론트와 현재 서버 노트북에서 실행하는 Node.js + SQ
 사진·화면 전환 최적화: 화면용 이미지 합계 약 60% 감소, 현재 작물의 수확 이미지 선준비, 작물 선택 이미지 백그라운드 준비, 성장 대기 0.7초를 적용했습니다. 앱 코드·엔진·폰트·이미지는 내용별 주소와 장기 브라우저 캐시를 사용합니다. GitHub/Cloudflare 빌드는 마무리 스크립트를 자동 실행합니다.
 
 ## 실행과 배포
+
+`GrowGame 시작.cmd` 하나로 백엔드와 도메인 연결을 함께 시작합니다. IP를 수동 등록할 필요가 없습니다. 새 컴퓨터의 최초 실행에는 Node/cloudflared 설치, 저장 폴더 선택과 Tunnel 인증이 필요합니다. 현재 컴퓨터는 사용자 요청에 따라 별도 로컬 테스트 DB를 사용합니다. 최신 실행·배포 상태는 인수인계 문서 맨 위를 확인하세요.
 
 **백엔드 없이 화면·성장·수확·퀴즈만 테스트할 때:**
 

@@ -9,5 +9,5 @@ if ! command -v flutter >/dev/null 2>&1; then
 fi
 flutter pub get
 flutter build web --wasm --no-web-resources-cdn \
-  --dart-define=API_BASE_URL="${API_BASE_URL:-https://cropgrow-api.sangsangbar.com}"
+  --dart-define=API_BASE_URL="${API_BASE_URL:-https://cropgrow.sangsangbar.com}"
 node scripts/finalize-web.cjs

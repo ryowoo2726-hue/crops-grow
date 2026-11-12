@@ -5,7 +5,7 @@ import 'transport_stub.dart'
 
 const apiBaseUrl = String.fromEnvironment(
   'API_BASE_URL',
-  defaultValue: 'https://cropgrow-api.sangsangbar.com',
+  defaultValue: 'https://cropgrow.sangsangbar.com',
 );
 
 class ApiException implements Exception {
@@ -30,7 +30,7 @@ class BackendClient {
             '${apiBaseUrl.replaceFirst(RegExp(r'/+$'), '')}$route',
             method,
             {
-              'Content-Type': 'application/json',
+              if (body != null) 'Content-Type': 'application/json',
               if (token.isNotEmpty) 'Authorization': 'Bearer $token',
             },
             body == null ? null : jsonEncode(body),

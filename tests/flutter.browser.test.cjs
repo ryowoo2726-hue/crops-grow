@@ -10,7 +10,8 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 (async () => {
   const dataDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'growgame-browser-db-'));
   const app = createBackend({directory: dataDirectory});
-  const startApi = () => new Promise(resolve => app.server.listen(8787, '127.0.0.1', resolve));
+  const apiPort=Number(process.env.GROWGAME_TEST_API_PORT)||8787;
+  const startApi = () => new Promise(resolve => app.server.listen(apiPort, '127.0.0.1', resolve));
   const stopApi = () => new Promise(resolve => app.server.close(resolve));
   await startApi();
   app.store.importQuiz({week:weekAt(Date.now()), questions:[{question:'이번 주 퀴즈 질문',choices:['정답 보기','다른 보기','세 번째 보기','네 번째 보기'],correctIndex:0,explanation:'정답 해설입니다.'}]});
@@ -27,13 +28,18 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     const pages = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json();
     socket = new WebSocket(pages.find(p => p.type === 'page').webSocketDebuggerUrl);
     await new Promise(resolve => socket.addEventListener('open', resolve, {once: true}));
-    let sequence = 0, pausedAction = null;
+    let sequence = 0, pausedAction = null, pausedFont = null;
+    const healthMethods=[];
     const pending = new Map(), errors = [], harvestImages = new Map(), cropImages = new Map(), missionRequests = [];
     socket.addEventListener('message', event => {
       const m = JSON.parse(event.data);
-      if (m.method === 'Fetch.requestPaused') pausedAction = m.params.requestId;
+      if (m.method === 'Fetch.requestPaused') {
+        if(m.params.request.url.includes('NotoSansKR-extended-'))pausedFont=m.params.requestId;
+        else pausedAction=m.params.requestId;
+      }
       if (m.method === 'Network.requestWillBeSent') {
         const url=m.params.request.url;
+        if(url.endsWith('/api/health'))healthMethods.push(m.params.request.method);
         if (/\/rice-stage-0[1-4]-[a-f0-9]+\.webp/.test(url)) cropImages.set(m.params.requestId,{url,complete:false});
         if (/\/api\/(quizzes|missions)\/current/.test(url)) missionRequests.push(url);
       }
@@ -62,6 +68,7 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     await send('Runtime.enable');
     await send('Network.enable');
     await send('Page.enable');
+    await send('Fetch.enable',{patterns:[{urlPattern:'*NotoSansKR-extended-*.woff2',requestStage:'Request'}]});
     await send('Emulation.setDeviceMetricsOverride', {width: 390, height: 844, deviceScaleFactor: 1, mobile: true});
     await send('Page.navigate', {url: process.env.GROWGAME_TEST_URL || 'http://localhost:4174/'});
     await wait("!!document.querySelector('flutter-view')");
@@ -92,6 +99,11 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     fs.writeFileSync(path.join(os.tmpdir(), 'growgame-flutter-login.png'), Buffer.from(loginShot.data, 'base64'));
     await clickText('시작하기');
     await wait("document.querySelector('flt-semantics-host')?.textContent.includes('0 / 100%')");
+    for(let n=0;!pausedFont&&n<100;n++)await sleep(100);
+    assert.ok(pausedFont,'보조 폰트 응답을 보류해도 게임 입장이 완료됨');
+    assert.ok(!healthMethods.includes('OPTIONS'),'health 조회에 불필요한 사전 확인 없음');
+    await send('Fetch.continueRequest',{requestId:pausedFont});pausedFont=null;
+    await send('Fetch.disable');
     assert.equal(new Set([...cropImages.values()].filter(image=>image.complete).map(image=>image.url)).size,4,'입장 전에 현재 작물의 네 성장 이미지 준비');
     assert.ok([...harvestImages.values()].some(image=>image.complete),'입장 전에 수확 이미지 준비');
     const farmShot = await send('Page.captureScreenshot');

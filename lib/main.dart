@@ -445,7 +445,11 @@ class _FarmGameState extends State<FarmGame>
           ),
       ]);
     }
-    // Preserve the original Hanja/CJK coverage without blocking Korean UI startup.
+    unawaited(warmExtendedFont());
+  }
+
+  Future<void> warmExtendedFont() async {
+    // Keep all Hanja/CJK coverage without holding game entry behind this font.
     if (!mounted) return;
     try {
       await (FontLoader(
@@ -457,23 +461,29 @@ class _FarmGameState extends State<FarmGame>
   }
 
   Future<void> preparePlay(String? crop) async {
-    await galleryPreparation;
+    await Future.wait([
+      galleryPreparation ?? Future<void>.value(),
+      warmCrop(crop),
+    ]);
+  }
+
+  Future<void> warmCrop(String? crop) async {
     if (!mounted || crop == null) return;
     Object? failure;
-    for (final provider in <ImageProvider<Object>>[
-      for (var stage = 1; stage <= 4; stage++)
-        gameImage('crops/$crop-stage-${stage.toString().padLeft(2, '0')}'),
-      gameImage('crops/$crop-harvest', width: 512),
-    ]) {
-      if (!mounted) return;
-      await precacheImage(
-        provider,
-        context,
-        onError: (error, _) {
-          failure ??= error;
-        },
-      );
-    }
+    await Future.wait([
+      for (final provider in <ImageProvider<Object>>[
+        for (var stage = 1; stage <= 4; stage++)
+          gameImage('crops/$crop-stage-${stage.toString().padLeft(2, '0')}'),
+        gameImage('crops/$crop-harvest', width: 512),
+      ])
+        precacheImage(
+          provider,
+          context,
+          onError: (error, _) {
+            failure ??= error;
+          },
+        ),
+    ]);
     if (failure != null) {
       throw const ApiException('작물 이미지를 준비하지 못했어요. 다시 시작해 주세요.', 0);
     }

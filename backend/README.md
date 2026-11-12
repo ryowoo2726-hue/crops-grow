@@ -1,5 +1,13 @@
 # 노트북 백엔드 준비
 
+## 현재 실행 방법 (2026-11-12 갱신)
+
+`GrowGame 시작.cmd` 또는 `backend/start.ps1` 하나로 API와 Cloudflare Tunnel을 함께 시작합니다. 실행 창을 유지하고 종료할 때 Ctrl+C를 누르세요. `-LocalOnly`는 터널 없이 API만 실행합니다. 공인 IP가 바뀌어도 Tunnel이 현재 PC에서 다시 연결하므로 DNS의 IP를 수동 변경하지 않습니다. 새 PC에는 Node/cloudflared 설치, DB 폴더 선택과 최초 Tunnel 인증이 필요합니다. 토큰은 해당 Windows 사용자의 DPAPI로 암호화합니다. 서로 다른 DB를 가진 컴퓨터 두 대에서 같은 Tunnel을 동시에 실행하지 마세요.
+
+현재 PC는 사용자 지정 **테스트 서버**이며 DB는 `%LOCALAPPDATA%\growgame-test-data`입니다. 기존 공식 학생 DB와 구분합니다. 게임은 `https://cropgrow.sangsangbar.com`, API 전달 경로는 같은 도메인의 `/api/*` → Cloudflare → `cropgrow-api.sangsangbar.com` Tunnel → 이 PC의 8787입니다. 관리자 주소는 기존 API 도메인의 `/admin/`을 사용합니다. 이 PC의 관리자 비밀번호는 아직 설정하지 않았습니다.
+
+보조 한자 폰트는 입장을 막지 않고 뒤에서 로드하며, 현재 작물 이미지들은 함께 준비합니다. API 응답은 캐시하지 않고 이미지·코드의 기존 해시 캐시를 유지합니다. 최신 배포/검증 결과는 인수인계 문서의 맨 위를 확인하세요. 아래 내용은 과거 실행 이력입니다.
+
 ## 실제 인터넷 연결 진단 (2026-11-12)
 
 사용자가 API와 Tunnel을 실행한 뒤 외부 health 200과 관리자 목록 읽기를 확인했습니다. 실제 인터넷 health 동시 100건씩 3회는 실패 5/300, 일부 12초 시간 초과와 별도 진단의 502가 있었습니다. DNS·API 접속 경로·로그인 보조 폰트 대기 개선 항목은 [실제 인터넷 성능 보고서](../docs/INTERNET_PERFORMANCE_REPORT.md)를 확인하세요. 이번 진단에서 운영 설정과 학생 기록은 바꾸지 않았고 실행 중 서버도 종료하지 않았습니다.
