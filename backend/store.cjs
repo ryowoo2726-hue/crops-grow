@@ -41,15 +41,17 @@ function openStore(directory, {now = Date.now, dailyLimit = false} = {}) {
     const find = () => db.prepare('SELECT * FROM players WHERE grade=? AND class_no=? AND number=?').get(profile.grade,profile.classNo,profile.number);
     let p = find();
     if (p?.locked_until > now()) fail(429,'비밀번호를 여러 번 틀렸어요. 15분 뒤 다시 시도해 주세요.');
+    let actual;
     if (!p) {
       const salt = crypto.randomBytes(16).toString('hex');
-      const hash = (await scrypt(pin, salt, 32)).toString('hex');
-      // 해시 계산 중 다른 요청이 같은 번호를 등록했다면 기존 비밀번호를 검증합니다.
-      db.prepare('INSERT OR IGNORE INTO players(grade,class_no,number,pin_salt,pin_hash) VALUES(?,?,?,?,?)').run(profile.grade,profile.classNo,profile.number,salt,hash);
+      const hash = await scrypt(pin, salt, 32);
+      const inserted = db.prepare('INSERT OR IGNORE INTO players(grade,class_no,number,pin_salt,pin_hash) VALUES(?,?,?,?,?)').run(profile.grade,profile.classNo,profile.number,salt,hash.toString('hex'));
       p = find();
+      // 자신이 등록한 해시만 재사용합니다. 같은 번호를 먼저 등록한 요청의 PIN은 별도로 검증합니다.
+      if (inserted.changes) actual = hash;
     }
     const authenticatedSalt = p.pin_salt;
-    const actual = await scrypt(pin, authenticatedSalt, 32);
+    actual ??= await scrypt(pin, authenticatedSalt, 32);
     p = getPlayer(p.id);
     if (!p || p.pin_salt !== authenticatedSalt) fail(401,'학생 정보가 변경되었어요. 다시 입장해 주세요.');
     if (p.locked_until > now()) fail(429,'15분 뒤 다시 시도해 주세요.');

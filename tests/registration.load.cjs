@@ -63,7 +63,13 @@ async function sample({count,round=1,delayMs=0,threads,idleMs=0,preflight=false}
 
 (async()=>{
   const report={at:new Date().toISOString(),timeoutMs:12000,networkDelay:'simulated RTT split before forwarding request and returning response; no bandwidth/loss simulation',samples:[]};
-  if(!process.argv.includes('--preflight-only')){
+  const registrationOnly=process.argv.includes('--registration-only');
+  const option=name=>process.argv.find(arg=>arg.startsWith(`--${name}=`))?.split('=')[1];
+  if(registrationOnly){
+    const count=Number(option('count')||100),rounds=Number(option('rounds')||3),threads=Number(option('threads')||4);
+    if(!Number.isInteger(count)||count<1||count>100||!Number.isInteger(rounds)||rounds<1||rounds>10||![4,8].includes(threads))throw Error('Use count 1..100, rounds 1..10, threads 4 or 8');
+    for(let round=1;round<=rounds;round++)report.samples.push(await sample({count,round,threads}));
+  }else if(!process.argv.includes('--preflight-only')){
     for(const count of [10,30,50,100])for(let round=1;round<=3;round++)report.samples.push(await sample({count,round}));
     for(const delayMs of [300,1000,2000,5000,10000])report.samples.push(await sample({count:100,delayMs}));
     for(let round=1;round<=3;round++)report.samples.push(await sample({count:100,threads:8,round}));
@@ -75,6 +81,7 @@ async function sample({count,round=1,delayMs=0,threads,idleMs=0,preflight=false}
   if(!Number.isInteger(count)||count<1||count>100)throw Error('Count must be 1..100');
   const delays=onlyDelay?[Number(onlyDelay.split('=')[1])]:[300,1000,2000,5000,10000];
   if(!delays.every(delay=>Number.isInteger(delay)&&delay>=0&&delay<=10000))throw Error('Delay must be 0..10000ms');
-  for(const delayMs of delays)report.samples.push(await sample({count,delayMs,preflight:true}));
+  if(!registrationOnly)for(const delayMs of delays)report.samples.push(await sample({count,delayMs,preflight:true}));
   const file=path.join(os.tmpdir(),'growgame-registration-'+Date.now()+'.json');fs.writeFileSync(file,JSON.stringify(report,null,2));console.log('Report: '+file);
+  if(registrationOnly&&report.samples.some(s=>s.failures||s.retryFailures||s.playersAfterRetry!==s.count||s.hashCalls!==s.count))process.exitCode=1;
 })().catch(error=>{console.error(error.message);process.exitCode=1;});

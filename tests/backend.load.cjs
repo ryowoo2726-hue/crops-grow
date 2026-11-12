@@ -85,15 +85,17 @@ if(process.argv.includes('--worker')){
       };
       const bases=[['loopback',`http://127.0.0.1:${port}`]];
       if(process.argv.includes('--tunnel')){
-        tunnel=spawn(process.env.CLOUDFLARED_PATH||'C:/Program Files (x86)/cloudflared/cloudflared.exe',['tunnel','--no-autoupdate','--protocol','http2','--url',bases[0][1]],{stdio:['ignore','pipe','pipe'],windowsHide:true});
+        const protocol=process.argv.find(arg=>arg.startsWith('--tunnel-protocol='))?.split('=')[1]||'http2';
+        if(!['auto','http2','quic'].includes(protocol))throw Error('Tunnel protocol must be auto, http2 or quic');
+        tunnel=spawn(process.env.CLOUDFLARED_PATH||'C:/Program Files (x86)/cloudflared/cloudflared.exe',['tunnel','--no-autoupdate','--protocol',protocol,'--url',bases[0][1]],{stdio:['ignore','pipe','pipe'],windowsHide:true});
         let output='',tunnelError;
         const read=chunk=>{output=(output+chunk).slice(-20000);};tunnel.stdout.on('data',read);tunnel.stderr.on('data',read);tunnel.on('error',error=>tunnelError=error);
         let url;
         for(let n=0;n<120;n++){url=output.match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/)?.[0];if(url||tunnelError||tunnel.exitCode!==null)break;await pause(500);}
         if(url){
-          for(let n=0;n<20;n++){try{await call(url,'/api/health');bases.push(['quick-tunnel-http2',url]);break;}catch{await pause(1000);}}
+          for(let n=0;n<20;n++){try{await call(url,'/api/health');bases.push([`quick-tunnel-${protocol}`,url]);break;}catch{await pause(1000);}}
         }
-        report.tunnel={connected:bases.length===2,protocol:'http2',error:tunnelError?.message||(!url?(output.match(/quick tunnel provisioning failed[^\r\n]*/)?.[0]||'Quick Tunnel startup timed out'):bases.length===1?'Temporary tunnel health check failed':undefined)};
+        report.tunnel={connected:bases.length===2,protocol,error:tunnelError?.message||(!url?(output.match(/quick tunnel provisioning failed[^\r\n]*/)?.[0]||'Quick Tunnel startup timed out'):bases.length===1?'Temporary tunnel health check failed':undefined),registeredConnections:(output.match(/Registered tunnel connection/g)||[]).length,lastError:output.match(/[^\r\n]*ERR[^\r\n]*/g)?.at(-1)};
         console.log('Temporary internet tunnel connected: '+report.tunnel.connected);
       }
       for(const [transport,base]of bases){

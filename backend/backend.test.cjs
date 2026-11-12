@@ -7,6 +7,26 @@ const {backup}=require('node:sqlite');
 const {createBackend}=require('./server.cjs');
 const {hashPassword}=require('./admin.cjs');
 
+test('신규 등록 경쟁과 재시도: 같은 번호 한 명, 다른 PIN 거부, 잠금 유지',async t=>{
+  const directory=fs.mkdtempSync(path.join(os.tmpdir(),'growgame-register-race-'));
+  const app=createBackend({directory});
+  t.after(()=>{app.store.db.close();assert.ok(directory.startsWith(path.resolve(os.tmpdir())+path.sep));fs.rmSync(directory,{recursive:true,force:true});});
+  const crypto=require('node:crypto');
+  const pin=String(crypto.randomInt(1000,9999)),wrong=String(Number(pin)+1);
+  const profile={grade:1,classNo:1,number:1};
+  const same=await Promise.all(Array.from({length:8},()=>app.store.login(profile,pin)));
+  const id=app.store.authenticate(same[0].token);
+  assert.ok(same.every(result=>app.store.authenticate(result.token)===id));
+  assert.equal(app.store.db.prepare('SELECT COUNT(*) n FROM players').get().n,1);
+  const conflicting=await Promise.allSettled([app.store.login({...profile,number:2},pin),app.store.login({...profile,number:2},wrong)]);
+  assert.equal(conflicting.filter(r=>r.status==='fulfilled').length,1);
+  assert.equal(conflicting.find(r=>r.status==='rejected').reason.status,401);
+  assert.equal(app.store.db.prepare('SELECT COUNT(*) n FROM players').get().n,2);
+  assert.equal(app.store.db.prepare('SELECT COUNT(*) n FROM sessions').get().n,9,'잘못된 PIN에는 세션 미발급');
+  for(let i=0;i<5;i++) await assert.rejects(app.store.login(profile,wrong),e=>e.status===401);
+  await assert.rejects(app.store.login(profile,pin),e=>e.status===429);
+});
+
 test('과목별 하루 10문제, 완료 이력, 일괄 채점과 보상은 재시도·재시작에도 유지',async t=>{
   const directory=fs.mkdtempSync(path.join(os.tmpdir(),'growgame-quiz-sets-'));
   const bankFile=path.join(directory,'bank.json');
