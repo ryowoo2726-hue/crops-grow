@@ -62,12 +62,37 @@ const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
       const shot=await send('Page.captureScreenshot');
       fs.writeFileSync(path.join(os.tmpdir(),`growgame-admin-${width}.png`),Buffer.from(shot.data,'base64'));
       assert.equal(await run("localStorage.length===0&&sessionStorage.length===0"),true);
+      await run("document.querySelector('.delete-button').click()");
+      assert.equal(await run("document.getElementById('delete-dialog').open"),true);
+      assert.equal(await run("document.getElementById('delete-student').textContent"),'1학년 1반 1번');
+      assert.equal(await run("document.activeElement.id"),'cancel-delete');
+      assert.equal(await run("document.getElementById('delete-dialog').scrollWidth<=document.getElementById('delete-dialog').clientWidth"),true);
+      await run("document.getElementById('cancel-delete').click()");
+      assert.equal(await run("document.querySelectorAll('#students tr').length"),1);
+      assert.equal(app.store.snapshot(app.store.authenticate(changed.token)).harvestCount,1);
+      await run("document.querySelector('.delete-button').click()");
+      const deleteShot=await send('Page.captureScreenshot');
+      fs.writeFileSync(path.join(os.tmpdir(),`growgame-admin-delete-${width}.png`),Buffer.from(deleteShot.data,'base64'));
+      await run("document.getElementById('confirm-delete').click()");
+      await wait("document.getElementById('message').textContent.includes('삭제했습니다')");
+      assert.equal(await run("document.getElementById('delete-dialog').open"),false);
+      assert.equal(await run("document.querySelectorAll('#students tr').length"),0);
+      assert.equal(await run("document.getElementById('student-count').textContent"),'0명');
+      assert.equal(await run("document.getElementById('harvest-count').textContent"),'0개');
+      assert.equal(await run("document.getElementById('empty').hidden"),false);
+      assert.throws(()=>app.store.authenticate(changed.token),error=>error.status===401);
+      assert.equal(app.store.db.prepare('SELECT COUNT(*) n FROM players').get().n,2);
+      // Restore only fake test data for the next viewport.
+      const restored=await app.store.login({grade:1,classNo:1,number:1},'1234');
+      const restoredId=app.store.authenticate(restored.token);
+      app.store.db.prepare("UPDATE players SET crop_id='apple',progress=50 WHERE id=?").run(restoredId);
+      app.store.db.prepare("INSERT INTO harvests(player_id,crop_id,created_at) VALUES(?,'rice','2026-11-12T00:00:00Z')").run(restoredId);
       await run("document.getElementById('logout').click()");
       await wait("!document.getElementById('login').hidden");
       assert.equal(await run("document.querySelectorAll('#students tr').length"),0);
     }
     assert.deepEqual(errors,[]);
-    console.log('관리자 브라우저 검증 통과: 모바일 390/320px·PC, 로그인, 학년·반 필터, 성장·수확 기록, PIN 변경, 로그아웃');
+    console.log('관리자 브라우저 검증 통과: 모바일 390/320px·PC, 로그인, 학년·반 필터, PIN 변경, 삭제 확인·취소·성공·통계·세션 해제, 로그아웃');
   }finally{
     if(socket)socket.close();
     if(chrome&&chrome.exitCode===null){const exited=new Promise(resolve=>chrome.once('exit',resolve));chrome.kill();await exited;}

@@ -121,6 +121,7 @@ class _FarmGameState extends State<FarmGame>
   Map<String, dynamic>? record;
   int grade = 0, classNo = 0, number = 0, tab = 0, page = 0;
   bool busy = false, storageBroken = false;
+  bool watering = false;
   late final rewardController = AnimationController(
     vsync: this,
     duration: rewardEffectDuration,
@@ -706,6 +707,35 @@ class _FarmGameState extends State<FarmGame>
     save();
   }
 
+  Future<bool> prepareReward(String kind, double before) async {
+    rewardController.value = 0;
+    setState(() {
+      rewardKind = kind;
+      rewardFrom = before;
+    });
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted || record == null) return false;
+    final farm = farmKey.currentContext?.findRenderObject() as RenderBox?;
+    Rect? bounds(GlobalKey key) {
+      final box = key.currentContext?.findRenderObject() as RenderBox?;
+      if (farm == null || box == null || !box.hasSize) return null;
+      return box.localToGlobal(Offset.zero, ancestor: farm) & box.size;
+    }
+
+    final plot = bounds(plotKey),
+        mascot = bounds(mascotKey),
+        gauge = bounds(gaugeKey);
+    if (plot == null || mascot == null || gauge == null) return false;
+    setState(
+      () => rewardGeometry = (
+        home: mascot.center,
+        root: Offset(plot.center.dx, plot.top + plot.height * .82),
+        gauge: gauge,
+      ),
+    );
+    return true;
+  }
+
   Future<void> grow(
     String kind, {
     String? missionType,
@@ -713,61 +743,45 @@ class _FarmGameState extends State<FarmGame>
   }) async {
     if (busy || !cropReady || !canGrow(r, kind)) return;
     final before = (r['progress'] as num).toDouble();
-    setState(() => busy = true);
-    if (remote) {
-      final result = await remoteAction(
-        kind == 'mission' ? missionType! : kind,
-        missionRevision: missionRevision,
-      );
-      if (result == null) {
-        if (mounted) setState(() => busy = false);
-        return;
-      }
-    } else {
+    final animate = !MediaQuery.disableAnimationsOf(context);
+    setState(() {
+      busy = true;
+      watering = kind == 'water';
+    });
+    final request = remote
+        ? remoteAction(
+            kind == 'mission' ? missionType! : kind,
+            missionRevision: missionRevision,
+          )
+        : null;
+    if (!remote) {
       setState(() => growRecord(r, kind));
       save();
     }
-    if (!mounted) return;
     try {
-      if ((r['progress'] as num) > before &&
-          !MediaQuery.disableAnimationsOf(context)) {
-        rewardController.value = 0;
-        setState(() {
-          rewardKind = kind;
-          rewardFrom = before;
-        });
-        await WidgetsBinding.instance.endOfFrame;
+      if (watering && animate && await prepareReward(kind, before)) {
+        // Start the splash now; absorption waits for the server's decision.
+        rewardController.animateTo(.5, duration: rewardEffectDuration * .5);
+      }
+      if (remote && await request == null) return;
+      if (!mounted || record == null) return;
+      if ((r['progress'] as num) > before && animate) {
+        if (!watering) await prepareReward(kind, before);
         if (!mounted) return;
-        final farm = farmKey.currentContext?.findRenderObject() as RenderBox?;
-        Rect? bounds(GlobalKey key) {
-          final box = key.currentContext?.findRenderObject() as RenderBox?;
-          if (farm == null || box == null || !box.hasSize) return null;
-          return box.localToGlobal(Offset.zero, ancestor: farm) & box.size;
-        }
-
-        final plot = bounds(plotKey),
-            mascot = bounds(mascotKey),
-            gauge = bounds(gaugeKey);
-        if (plot != null && mascot != null && gauge != null) {
-          setState(
-            () => rewardGeometry = (
-              home: mascot.center,
-              root: Offset(plot.center.dx, plot.top + plot.height * .82),
-              gauge: gauge,
-            ),
-          );
-          await rewardController.forward().orCancel;
-        }
+        if (rewardGeometry != null) await rewardController.forward().orCancel;
       }
     } on TickerCanceled {
       // Disposing the screen cancels only the presentation, never the saved reward.
     } finally {
-      if (mounted)
+      if (mounted) {
+        rewardController.stop(canceled: false);
         setState(() {
           rewardKind = null;
           rewardGeometry = null;
           busy = false;
+          watering = false;
         });
+      }
     }
   }
 
@@ -1594,10 +1608,14 @@ class _FarmGameState extends State<FarmGame>
                   ? rewardKind == 'water'
                         ? rewardController.value < .48
                               ? '물방울이 작물에게 가요!'
+                              : r['progress'] <= rewardFrom
+                              ? '물을 주고 있어요!'
                               : '촉촉하게, 쑥쑥 자라요!'
                         : '영양분이 뿌리로 쏙!'
                   : busy
-                  ? '잠시만요, 확인 중이에요…'
+                  ? watering
+                        ? '물을 주고 있어요!'
+                        : '잠시만요, 확인 중이에요…'
                   : r['progress'] >= 100
                   ? '수확할 준비 완료!'
                   : crop == null

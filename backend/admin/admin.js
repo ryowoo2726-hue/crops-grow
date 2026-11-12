@@ -1,9 +1,9 @@
 'use strict';
 const $=id=>document.getElementById(id);
 const crops={'rice':'벼','sweet-potato':'고구마','soybean':'콩','radish':'무','napa-cabbage':'배추','apple':'사과','persimmon':'감','peach':'복숭아','watermelon':'수박','chili-pepper':'고추','mango':'망고'};
-let token='',students=[],selected=null,sessionTimer;
+let token='',students=[],selected=null,deleting=null,sessionTimer;
 for(let n=1;n<=10;n++) $('class-no').add(new Option(`${n}반`,String(n)));
-function signedOut(){clearTimeout(sessionTimer);token='';students=[];selected=null;$('students').replaceChildren();$('dashboard').hidden=true;$('logout').hidden=true;$('login').hidden=false;if($('pin-dialog').open)$('pin-dialog').close();}
+function signedOut(){clearTimeout(sessionTimer);token='';students=[];selected=null;deleting=null;$('students').replaceChildren();$('dashboard').hidden=true;$('logout').hidden=true;$('login').hidden=false;for(const id of ['pin-dialog','delete-dialog'])if($(id).open)$(id).close();}
 async function api(route,body){
   const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),12000);
   try{
@@ -28,7 +28,10 @@ function render(){
     button.onclick=()=>{selected=student;$('pin-student').textContent=`${student.grade}학년 ${student.classNo}반 ${student.number}번`;$('new-pin').value='';$('pin-error').textContent='';$('pin-dialog').showModal();$('new-pin').focus();};pin.append(button);
     cell(row,student.cropId?(crops[student.cropId]||'알 수 없는 작물'):'심기 대기','crop');
     const growth=cell(row,'');const group=document.createElement('div');group.className='growth';const bar=document.createElement('progress');bar.max=100;bar.value=student.progress;bar.setAttribute('aria-label','작물 성장도');const percent=document.createElement('span');percent.textContent=`${student.progress}%`;group.append(bar,percent);growth.append(group);
-    cell(row,`${student.harvestCount}개`,'harvest');$('students').append(row);
+    cell(row,`${student.harvestCount}개`,'harvest');
+    const remove=document.createElement('button');remove.className='delete-button';remove.textContent='삭제';remove.setAttribute('aria-label',`${student.grade}학년 ${student.classNo}반 ${student.number}번 학생 삭제`);
+    remove.onclick=()=>{deleting=student;$('delete-student').textContent=`${student.grade}학년 ${student.classNo}반 ${student.number}번`;$('delete-error').textContent='';$('delete-dialog').showModal();$('cancel-delete').focus();};cell(row,'').append(remove);
+    $('students').append(row);
   }
 }
 async function refresh(){
@@ -53,4 +56,19 @@ $('pin-form').onsubmit=async event=>{
   try{await api('reset-pin',{profile:{grade:selected.grade,classNo:selected.classNo,number:selected.number},pin:$('new-pin').value});$('pin-dialog').close();$('new-pin').value='';await refresh();$('message').textContent='학생 비밀번호를 변경했습니다. 새 비밀번호를 학생에게 직접 알려주세요.';}
   catch(error){if($('pin-dialog').open)$('pin-error').textContent=error.message;else $('message').textContent=error.message;}
   finally{button.disabled=false;$('cancel-pin').disabled=false;}
+};
+$('cancel-delete').onclick=()=>$('delete-dialog').close();
+$('delete-dialog').onclose=()=>{if(!$('delete-dialog').open)deleting=null;};
+$('delete-dialog').oncancel=event=>{if($('confirm-delete').disabled)event.preventDefault();};
+$('delete-form').onsubmit=async event=>{
+  event.preventDefault();if(!deleting||$('confirm-delete').disabled)return;
+  const student=deleting,session=token;
+  const profile={grade:student.grade,classNo:student.classNo,number:student.number};
+  $('confirm-delete').disabled=true;$('cancel-delete').disabled=true;$('delete-error').textContent='';
+  try{
+    await api('delete-student',{profile});if(token!==session||!token)return;
+    students=students.filter(s=>s.grade!==profile.grade||s.classNo!==profile.classNo||s.number!==profile.number);
+    $('delete-dialog').close();render();$('message').textContent=`${profile.grade}학년 ${profile.classNo}반 ${profile.number}번 학생과 게임 기록을 삭제했습니다.`;
+  }catch(error){if($('delete-dialog').open)$('delete-error').textContent=error.message;else $('message').textContent=error.message;}
+  finally{$('confirm-delete').disabled=false;$('cancel-delete').disabled=false;}
 };

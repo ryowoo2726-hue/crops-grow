@@ -54,6 +54,10 @@ function createAdmin(store,{credentials,now}) {
       await store.resetPin(input.profile,input.pin);
       reply(200,{ok:true}); return;
     }
+    if (route==='/api/admin/delete-student' && method==='POST') {
+      store.deleteStudent(input.profile);
+      reply(200,{ok:true}); return;
+    }
     throw new ApiError(404,'요청한 관리자 기능을 찾을 수 없습니다.');
   }
   return {handle};

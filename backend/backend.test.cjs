@@ -64,6 +64,58 @@ test('관리자 인증, 학생 목록, PIN 변경, 권한 분리와 만료',asyn
   await assert.rejects(hashPassword('x'));
 });
 
+test('관리자 학생 삭제: 권한, 전체 기록 정리, 롤백, 재등록과 진행 중 인증 차단',async t=>{
+  const directory=fs.mkdtempSync(path.join(os.tmpdir(),'growgame-delete-'));
+  const app=createBackend({directory,now:()=>Date.parse('2026-11-12T00:00:00Z'),adminCredentials:await hashPassword('8642')});
+  await new Promise(resolve=>app.server.listen(0,'127.0.0.1',resolve));
+  t.after(async()=>{await new Promise(resolve=>app.server.close(resolve));app.store.db.close();assert.ok(directory.startsWith(path.resolve(os.tmpdir())+path.sep));fs.rmSync(directory,{recursive:true,force:true});});
+  const request=async(route,{token,body={},origin}={})=>{
+    const response=await fetch(`http://127.0.0.1:${app.server.address().port}`+route,{method:'POST',headers:{'Content-Type':'application/json',...(token?{Authorization:'Bearer '+token}:{}),...(origin?{Origin:origin}:{})},body:JSON.stringify(body)});
+    return {status:response.status,data:await response.json()};
+  };
+  const profile={grade:1,classNo:1,number:1};
+  const other=await app.store.login({...profile,classNo:2},'4321');
+  const student=await app.store.login(profile,'1234'),id=app.store.authenticate(student.token);
+  for(let i=0;i<2;i++)app.store.action(id,{kind:'water',requestId:'delete-water-0000'+i});
+  app.store.action(id,{kind:'harvest',requestId:'delete-harvest-00001'});
+  app.store.importQuiz({week:'2026-11-09',questions:[{question:'삭제 검증',choices:['가','나','다','라'],correctIndex:0}]});
+  const quiz=app.store.quiz();
+  app.store.checkAnswer(id,{week:quiz.week,revision:quiz.revision,questionId:quiz.questions[0].id,answerIndex:0});
+  const route='/api/admin/delete-student';
+  assert.equal((await request(route,{body:{profile}})).status,401);
+  assert.equal((await request(route,{token:student.token,body:{profile}})).status,401);
+  const token=(await request('/api/admin/session',{body:{password:'8642'}})).data.token;
+  assert.equal((await request(route,{token,body:{profile},origin:'https://untrusted.example'})).status,403);
+  for(const invalid of [null,{}, {...profile,number:0}, {...profile,grade:'1'}, {...profile,classNo:11}])
+    assert.equal((await request(route,{token,body:{profile:invalid}})).status,400);
+  assert.equal((await request(route,{token,body:{profile:{...profile,number:30}}})).status,404);
+  const tables=['sessions','harvests','quiz_answers','action_receipts'];
+  const counts=()=>tables.map(table=>app.store.db.prepare(`SELECT COUNT(*) n FROM ${table} WHERE player_id=?`).get(id).n);
+  const before=counts();assert.ok(before.every(n=>n>0));
+  app.store.db.exec("CREATE TRIGGER block_delete BEFORE DELETE ON players BEGIN SELECT RAISE(ABORT,'test rollback'); END");
+  assert.throws(()=>app.store.deleteStudent(profile),/test rollback/);
+  assert.deepEqual(counts(),before);assert.equal(app.store.snapshot(id).harvestCount,1);
+  app.store.db.exec('DROP TRIGGER block_delete');
+  assert.equal((await request(route,{token,body:{profile}})).status,200);
+  assert.deepEqual(counts(),[0,0,0,0]);
+  assert.equal(app.store.db.prepare('SELECT COUNT(*) n FROM players WHERE id=?').get(id).n,0);
+  assert.throws(()=>app.store.authenticate(student.token),error=>error.status===401);
+  assert.equal(app.store.snapshot(app.store.authenticate(other.token)).cropId,'rice');
+  assert.equal(app.store.quiz().questions.length,1);
+  assert.deepEqual(app.store.db.prepare('PRAGMA foreign_key_check').all(),[]);
+  assert.equal((await request(route,{token,body:{profile}})).status,404);
+  const fresh=await app.store.login(profile,'1357');
+  assert.equal(fresh.state.harvestCount,0);assert.equal(fresh.state.progress,0);
+  const pending=Promise.allSettled([app.store.login(profile,'1357'),app.store.resetPin(profile,'2468')]);
+  app.store.deleteStudent(profile);
+  const replacement=await app.store.login(profile,'5678');
+  const results=await pending;
+  assert.ok(results.every(r=>r.status==='rejected'));
+  assert.equal(results[0].reason.status,401);assert.equal(results[1].reason.status,409);
+  assert.equal((await app.store.login(profile,'5678')).state.progress,0);
+  assert.equal(app.store.snapshot(app.store.authenticate(replacement.token)).harvestCount,0);
+});
+
 test('관리자 비밀번호 미설정 시 로그인 차단',async t=>{
   const directory=fs.mkdtempSync(path.join(os.tmpdir(),'growgame-admin-disabled-'));
   const app=createBackend({directory});

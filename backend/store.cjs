@@ -47,8 +47,10 @@ function openStore(directory, {now = Date.now, dailyLimit = false} = {}) {
       db.prepare('INSERT OR IGNORE INTO players(grade,class_no,number,pin_salt,pin_hash) VALUES(?,?,?,?,?)').run(profile.grade,profile.classNo,profile.number,salt,hash);
       p = find();
     }
-    const actual = await scrypt(pin, p.pin_salt, 32);
+    const authenticatedSalt = p.pin_salt;
+    const actual = await scrypt(pin, authenticatedSalt, 32);
     p = getPlayer(p.id);
+    if (!p || p.pin_salt !== authenticatedSalt) fail(401,'학생 정보가 변경되었어요. 다시 입장해 주세요.');
     if (p.locked_until > now()) fail(429,'15분 뒤 다시 시도해 주세요.');
     if (!crypto.timingSafeEqual(actual,Buffer.from(p.pin_hash,'hex'))) {
       const attempts = p.failed_attempts + 1;
@@ -70,14 +72,30 @@ function openStore(directory, {now = Date.now, dailyLimit = false} = {}) {
   }
   async function resetPin(profile, pin) {
     if (!profile || ![profile.grade,profile.classNo,profile.number].every(Number.isInteger) || typeof pin!=='string' || !/^\d{4}$/.test(pin)) fail(400,'참여 정보와 4자리 PIN을 확인하세요.');
-    const player=db.prepare('SELECT id FROM players WHERE grade=? AND class_no=? AND number=?').get(profile.grade,profile.classNo,profile.number);
+    const player=db.prepare('SELECT id,pin_salt FROM players WHERE grade=? AND class_no=? AND number=?').get(profile.grade,profile.classNo,profile.number);
     if(!player) fail(404,'등록된 학생이 아닙니다.');
     const salt=crypto.randomBytes(16).toString('hex');
     const hash=(await scrypt(pin,salt,32)).toString('hex');
     db.exec('BEGIN IMMEDIATE');
     try {
+      if (getPlayer(player.id)?.pin_salt !== player.pin_salt) fail(409,'학생 정보가 변경되었습니다. 목록을 새로고침하세요.');
       db.prepare('UPDATE players SET pin_salt=?,pin_hash=?,failed_attempts=0,locked_until=0 WHERE id=?').run(salt,hash,player.id);
       db.prepare('DELETE FROM sessions WHERE player_id=?').run(player.id);
+      db.exec('COMMIT');
+    } catch(error) { db.exec('ROLLBACK'); throw error; }
+  }
+  function deleteStudent(profile) {
+    if (!profile || !Number.isInteger(profile.grade) || profile.grade<1 || profile.grade>3 ||
+        !Number.isInteger(profile.classNo) || profile.classNo<1 || profile.classNo>10 ||
+        !Number.isInteger(profile.number) || profile.number<1 || profile.number>30) fail(400,'삭제할 학생의 학년·반·번호를 확인하세요.');
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      const player=db.prepare('SELECT id FROM players WHERE grade=? AND class_no=? AND number=?').get(profile.grade,profile.classNo,profile.number);
+      if (!player) fail(404,'등록된 학생이 아닙니다.');
+      for (const table of ['sessions','harvests','quiz_answers','action_receipts']) {
+        db.prepare(`DELETE FROM ${table} WHERE player_id=?`).run(player.id);
+      }
+      db.prepare('DELETE FROM players WHERE id=?').run(player.id);
       db.exec('COMMIT');
     } catch(error) { db.exec('ROLLBACK'); throw error; }
   }
@@ -168,6 +186,6 @@ function openStore(directory, {now = Date.now, dailyLimit = false} = {}) {
     if (!input || !validWeek(input.week) || typeof input.title!=='string' || !input.title.trim() || input.title.length>60 || typeof input.description!=='string' || !input.description.trim() || input.description.length>600) fail(400,'특별 미션의 월요일 날짜, 제목과 내용을 확인하세요.');
     db.prepare('INSERT INTO special_missions(week,title,description) VALUES(?,?,?) ON CONFLICT(week) DO UPDATE SET title=excluded.title,description=excluded.description,revision=revision+1').run(input.week,input.title.trim(),input.description.trim());
   }
-  return {db,login,resetPin,authenticate,snapshot,quiz,checkAnswer,special,action,garden,importQuiz,importSpecial};
+  return {db,login,resetPin,deleteStudent,authenticate,snapshot,quiz,checkAnswer,special,action,garden,importQuiz,importSpecial};
 }
 module.exports = {openStore,ApiError,dayAt,weekAt};
