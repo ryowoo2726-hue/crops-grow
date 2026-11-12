@@ -1,5 +1,7 @@
 // Measure a LOCAL_TEST_MODE build at localhost:4180. No student API is used.
 // node tests/loading.browser.cjs before (or after). Results/screenshots go to OS temp.
+// Production login-screen audits only read /api/health; no students/actions are created.
+// GROWGAME_TEST_UNTHROTTLED=true uses the real connection without the 8Mbps/40ms cap.
 const fs=require('node:fs'),os=require('node:os'),path=require('node:path');
 const assert=require('node:assert/strict');
 const {spawn}=require('node:child_process');
@@ -18,22 +20,31 @@ const sleep=ms=>new Promise(r=>setTimeout(r,ms));
     const pages=await(await fetch(`http://127.0.0.1:${port}/json/list`)).json();
     socket=new WebSocket(pages.find(p=>p.type==='page').webSocketDebuggerUrl);
     await new Promise(r=>socket.addEventListener('open',r,{once:true}));
-    let id=0;const pending=new Map(),errors=[];
+    let id=0,traceFinished,apiResponses=[];const pending=new Map(),errors=[];
     socket.addEventListener('message',e=>{const m=JSON.parse(e.data);if(m.id){const p=pending.get(m.id);pending.delete(m.id);m.error?p.reject(m.error):p.resolve(m.result)}
       if(m.method==='Runtime.exceptionThrown')errors.push(m.params.exceptionDetails);
       if(m.method==='Network.responseReceived'&&m.params.response.status>=400&&/\.(wasm|mjs|js|woff2|webp|otf|ttf|json)(\?|$)/.test(m.params.response.url))errors.push({url:m.params.response.url,status:m.params.response.status});
+      if(m.method==='Tracing.tracingComplete')traceFinished?.(m.params.stream);
+      if(m.method==='Network.responseReceived'&&m.params.response.url.endsWith('/api/health')){
+        const r=m.params.response,headers=Object.fromEntries(Object.entries(r.headers).map(([k,v])=>[k.toLowerCase(),v]));
+        apiResponses.push({status:r.status,protocol:r.protocol,colo:headers['cf-ray']?.split('-').at(-1),timing:r.timing});
+      }
     });
     const send=(method,params={})=>new Promise((resolve,reject)=>{const key=++id;pending.set(key,{resolve,reject});socket.send(JSON.stringify({id:key,method,params}))});
     const run=async expression=>{const r=await send('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true});assert.ok(!r.exceptionDetails,JSON.stringify(r.exceptionDetails));return r.result.value};
     const wait=async expression=>{for(let i=0;i<600;i++){if(await run(expression))return;await sleep(100)}throw Error('Timeout '+expression)};
-    await send('Runtime.enable');await send('Network.enable');await send('Page.enable');
+    await send('Runtime.enable');await send('Network.enable');await send('Page.enable');await send('Performance.enable');
     await send('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
-    await send('Network.emulateNetworkConditions',{offline:false,latency:40,downloadThroughput:1000000,uploadThroughput:1000000});
-    await send('Page.addScriptToEvaluateOnNewDocument',{source:"window.addEventListener('flutter-first-frame',()=>window.__firstFrame=performance.now(),{once:true})"});
+    if(process.env.GROWGAME_TEST_UNTHROTTLED!=='true')
+      await send('Network.emulateNetworkConditions',{offline:false,latency:40,downloadThroughput:1000000,uploadThroughput:1000000});
+    await send('Page.addScriptToEvaluateOnNewDocument',{source:"window.addEventListener('flutter-first-frame',()=>window.__firstFrame=performance.now(),{once:true});window.__longTasks=[];new PerformanceObserver(list=>window.__longTasks.push(...list.getEntries().map(e=>({start:e.startTime,duration:e.duration})))).observe({type:'longtask',buffered:true});"});
     const reports=[];
-    for(let iteration=0;iteration<3;iteration++){
+    for(let iteration=0;iteration<(Number(process.env.GROWGAME_TEST_ROUNDS)||3);iteration++){
       await send('Network.clearBrowserCache');
       for(const visit of ['cold','warm']){
+        apiResponses=[];
+        const baseline=Object.fromEntries((await send('Performance.getMetrics')).metrics.map(m=>[m.name,m.value]));
+        if(process.env.GROWGAME_TEST_TRACE==='true')await send('Tracing.start',{categories:'devtools.timeline,v8,blink.user_timing,loading',transferMode:'ReturnAsStream'});
         await send('Page.navigate',{url});
         await wait('!!window.__firstFrame');
         await wait("!!document.querySelector('flt-semantics-placeholder')");
@@ -41,11 +52,21 @@ const sleep=ms=>new Promise(r=>setTimeout(r,ms));
         await wait(`document.querySelector('flt-semantics-host')?.textContent.includes('${production?'시작하기':'로컬 테스트'}')`);
         if(production) assert.equal(await run("document.querySelector('flt-semantics-host')?.textContent.includes('로컬 테스트')"),false);
         else await wait("document.querySelector('flt-semantics-host')?.textContent.includes('벼 성장 0%') || !!document.querySelector('flt-semantics[aria-label=\"벼 성장 0%\"]')");
+        const metrics=Object.fromEntries((await send('Performance.getMetrics')).metrics.map(m=>[m.name,m.value]));
+        const newDocument=metrics.NavigationStart!==baseline.NavigationStart;
+        const cpu=Object.fromEntries(['TaskDuration','ScriptDuration','LayoutDuration','RecalcStyleDuration'].map(name=>[name,Math.max(0,metrics[name]-(newDocument?0:baseline[name]||0))*1000]));
+        if(process.env.GROWGAME_TEST_TRACE==='true'){
+          const completed=new Promise(resolve=>traceFinished=resolve);await send('Tracing.end');const stream=await completed;let trace='';
+          while(true){const chunk=await send('IO.read',{handle:stream});trace+=chunk.base64Encoded?Buffer.from(chunk.data,'base64').toString():chunk.data;if(chunk.eof)break;}
+          await send('IO.close',{handle:stream});fs.writeFileSync(path.join(os.tmpdir(),`growgame-${label}-${visit}-trace.json`),trace);traceFinished=null;
+        }
         const cropReadyMs=production?null:await run('performance.now()');
         await sleep(4500);
         // Finish the deferred font download before testing a fully cached revisit.
         if(label.startsWith('after')) await wait("performance.getEntriesByType('resource').some(r=>r.name.includes('NotoSansKR-extended-')&&r.responseEnd>0)");
-        const result=await run(`({firstFrameMs:window.__firstFrame,cropReadyMs:${cropReadyMs},resources:performance.getEntriesByType('resource').map(r=>({name:new URL(r.name).pathname,start:r.startTime,end:r.responseEnd,transfer:r.transferSize,encoded:r.encodedBodySize,decoded:r.decodedBodySize}))})`);
+        const result=await run(`({firstFrameMs:window.__firstFrame,cropReadyMs:${cropReadyMs},navigation:performance.getEntriesByType('navigation')[0].toJSON(),longTasks:window.__longTasks.filter(t=>t.start<window.__firstFrame),resources:performance.getEntriesByType('resource').map(r=>({name:new URL(r.name).pathname,start:r.startTime,end:r.responseEnd,transfer:r.transferSize,encoded:r.encodedBodySize,decoded:r.decodedBodySize}))})`);
+        result.cpuToFrameMs=cpu;
+        result.apiResponses=apiResponses;
         result.iteration=iteration+1;result.visit=visit;
         if(production) result.galleryRequests=[];
         else {

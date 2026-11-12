@@ -6,7 +6,7 @@ Flutter Web 프론트와 현재 서버 노트북에서 실행하는 Node.js + SQ
 
 - 프론트 주소: `https://cropgrow.sangsangbar.com`
 - API 주소: `https://cropgrow-api.sangsangbar.com`
-- GitHub `main`과 Cloudflare Pages `cropgrow`를 연결했습니다. push하면 자동 배포됩니다. 프론트 도메인은 `cropgrow.sangsangbar.com`입니다. 백엔드 Tunnel과 API DNS도 설정했으며, 서버 노트북 커넥터 실행은 남아 있습니다.
+- GitHub `main`과 Cloudflare Pages `cropgrow`를 연결했습니다. push하면 자동 배포됩니다. 프론트 도메인은 `cropgrow.sangsangbar.com`입니다. 2026-11-12 사용자가 백엔드와 Tunnel을 실행한 뒤 외부 API 200을 확인했습니다. 다만 실제 인터넷 조회에 지연·시간 초과·502가 관찰되어 [실제 인터넷 진단](docs/INTERNET_PERFORMANCE_REPORT.md)의 개선 항목이 남아 있습니다.
 
 ## 웹 로딩 최적화 (2026-11-11)
 
@@ -14,7 +14,7 @@ Flutter Web 프론트와 현재 서버 노트북에서 실행하는 Node.js + SQ
 
 8Mbps·40ms 로컬 Chrome 측정(각 3회 중앙값)에서 첫 화면 13.38 → 8.41초, 현재 작물 준비 14.57 → 8.68초, 배경 전송 완료 14.79 → 0.25초, 재접속 1.00 → 0.33초입니다. 실제 학교망 속도를 보장하는 수치는 아닙니다.
 
-전체 문자와 굵기를 유지하는 WOFF2 폰트, 폰트 선로딩, HTML 내 Flutter bootstrap을 적용해 운영 배포했습니다. 로컬 캐시 없음·8Mbps·지연 40ms 측정에서 첫 화면이 약 22.1초에서 16.3초로 줄었습니다. 실제 접속 시간은 네트워크에 따라 달라집니다. 현재 백엔드는 사용자 요청으로 종료되어 있으므로 게임을 운영할 때 프로젝트 폴더의 `GrowGame 시작.cmd`를 실행하세요. 공식 DB 위치는 `C:\scr\grow`입니다.
+전체 문자와 굵기를 유지하는 WOFF2 폰트, 폰트 선로딩, HTML 내 Flutter bootstrap을 적용해 운영 배포했습니다. 초기 최적화 당시 로컬 캐시 없음·8Mbps·지연 40ms 측정에서 첫 화면이 약 22.1초에서 16.3초로 줄었습니다. 실제 접속 시간은 네트워크에 따라 달라지며 최신 수치는 위 진단 문서를 확인하세요. 서버를 시작할 때는 프로젝트 폴더의 `GrowGame 시작.cmd`를 실행합니다. 공식 DB의 마지막 지정 위치는 `C:\scr\grow`이며 현재 연결·운영 상태는 인수인계 최신 절을 기준으로 합니다.
 
 사진·화면 전환 최적화: 화면용 이미지 합계 약 60% 감소, 현재 작물의 수확 이미지 선준비, 작물 선택 이미지 백그라운드 준비, 성장 대기 0.7초를 적용했습니다. 앱 코드·엔진·폰트·이미지는 내용별 주소와 장기 브라우저 캐시를 사용합니다. GitHub/Cloudflare 빌드는 마무리 스크립트를 자동 실행합니다.
 
