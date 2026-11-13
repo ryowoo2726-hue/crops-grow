@@ -938,14 +938,14 @@ class _FarmGameState extends State<FarmGame>
         questions: parseQuizQuestions(run['questions']),
         result: run['result'] as Map<String, dynamic>?,
         claimed: run['claimed'] == true,
-        submit: (answers) async {
+        submit: (growth) async {
           final response = await backend.call('POST', '/api/quiz-runs/submit', {
             'runId': run['id'],
-            'answers': answers,
+            'growth': growth,
           });
           if (backend.token != session)
             throw const ApiException('다시 입장해 주세요.', 401);
-          run = response;
+          run = {...run, ...response};
           return response['result'] as Map<String, dynamic>;
         },
       ),

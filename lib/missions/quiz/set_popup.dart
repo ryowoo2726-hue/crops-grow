@@ -11,7 +11,7 @@ class QuizSetPopup extends StatefulWidget {
   });
 
   final List<QuizQuestion> questions;
-  final Future<Map<String, dynamic>> Function(List<int> answers) submit;
+  final Future<Map<String, dynamic>> Function(int growth) submit;
   final Map<String, dynamic>? result;
   final bool claimed;
 
@@ -38,8 +38,17 @@ class _QuizSetPopupState extends State<QuizSetPopup> {
       error = null;
     });
     try {
-      final response = await widget.submit(answers.cast<int>());
-      if (mounted) setState(() => result = response);
+      final review = List.generate(
+        widget.questions.length,
+        (i) => {
+          'selected': answers[i],
+          'correct': answers[i] == widget.questions[i].correctIndex,
+        },
+      );
+      final growth =
+          review.where((answer) => answer['correct'] == true).length * 10;
+      final response = await widget.submit(growth);
+      if (mounted) setState(() => result = {...response, 'answers': review});
     } catch (failure) {
       if (mounted) setState(() => error = failure.toString());
     } finally {
@@ -49,8 +58,12 @@ class _QuizSetPopupState extends State<QuizSetPopup> {
 
   @override
   Widget build(BuildContext context) {
+    if (widget.questions.length != 10 ||
+        widget.questions.any((q) => !q.isValid || q.correctIndex == null)) {
+      return const Text('퀴즈 내용을 확인하고 있어요. 잠시 후 다시 열어 주세요.');
+    }
     if (result != null) {
-      final review = result!['answers'] as List;
+      final review = result!['answers'] as List?;
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -79,15 +92,17 @@ class _QuizSetPopupState extends State<QuizSetPopup> {
                     '${i + 1}. ${widget.questions[i].question}',
                     style: const TextStyle(fontWeight: FontWeight.w700),
                   ),
-                  Text(review[i]['correct'] == true ? '정답' : '오답'),
+                  if (review != null) ...[
+                    Text(review[i]['correct'] == true ? '정답' : '오답'),
+                    Text(
+                      '내 답 · ${widget.questions[i].choices[review[i]['selected'] as int]}',
+                    ),
+                  ],
                   Text(
-                    '내 답 · ${widget.questions[i].choices[review[i]['selected'] as int]}',
+                    '정답 · ${widget.questions[i].choices[widget.questions[i].correctIndex!]}',
                   ),
-                  Text(
-                    '정답 · ${widget.questions[i].choices[review[i]['correctIndex'] as int]}',
-                  ),
-                  if ((review[i]['explanation'] as String).isNotEmpty)
-                    Text(review[i]['explanation'] as String),
+                  if (widget.questions[i].explanation.isNotEmpty)
+                    Text(widget.questions[i].explanation),
                 ],
               ),
             ),

@@ -61,20 +61,20 @@ node scripts/finalize-web.cjs
 
 이미지·폰트·애니메이션·화면 코드는 Cloudflare Pages에서 배포합니다. 학생은 최초 입장에 숫자 4자리 비밀번호를 정하고, 이후 같은 학년·반·번호의 비밀번호를 확인합니다. PIN 원문은 저장하지 않으며 해시·실패 횟수와 제한을 서버에서 관리합니다.
 
-성장률·수확·작물별 도감 개수는 서버에서 조회합니다. 물주기는 +50%, 미션은 +30%이며, 서버 성공 응답 후에만 반영합니다. 정원은 9개씩 조회합니다. 서버가 끊기면 작은 안내를 띄우고 마지막으로 받아둔 화면은 유지하며, 재접속하면 서버 기록을 다시 가져옵니다. 새로고침하면 로그인부터 다시 시작합니다.
+성장률·수확·작물별 도감 개수는 서버에서 조회합니다. 물주기는 +50%, 특별 미션은 +30%, 과목별 퀴즈는 정답 하나당 +10%이며, 서버 성공 응답 후에만 반영합니다. 정원은 9개씩 조회합니다. 서버가 끊기면 작은 안내를 띄우고 마지막으로 받아둔 화면은 유지하며, 재접속하면 서버 기록을 다시 가져옵니다. 새로고침하면 로그인부터 다시 시작합니다.
 
-프론트에는 현재 화면 데이터와 세션 토큰만 메모리에 보관합니다. 공식 기록을 localStorage에 저장하지 않습니다. 기존 체험판의 저장 데이터는 삭제하거나 자동으로 DB에 합치지 않았습니다. 개인·일일 규칙은 백엔드가 결정하며 학생이 화면에서 바꿀 수 없습니다.
+프론트에는 현재 화면 데이터와 세션 토큰만 메모리에 보관합니다. 공식 기록을 localStorage에 저장하지 않습니다. 기존 체험판의 저장 데이터는 삭제하거나 자동으로 DB에 합치지 않았습니다. 개인·일일 규칙은 백엔드가 결정합니다. 과목별 퀴즈 점수는 사용자가 선택한 기기 채점 방식으로 제출하므로 성장률 조작을 판별하지 못합니다.
 
-## 매주 4지선다 퀴즈와 특별 미션
+## 과목별 4지선다 퀴즈와 특별 미션
 
-문제·선지·정답은 백엔드의 JSON 관리 파일로 DB에 등록합니다. 정답은 프론트에 전송하지 않으며 정답 판정과 보상 조건도 서버에서 검증합니다. 모든 퀴즈는 정확히 네 가지 보기입니다. 템플릿은 자동으로 등록되지 않습니다.
+문제·선지·정답·해설은 `backend/content/quiz-bank.json`에서 SQLite에 등록합니다. 과목당 하루 한 세트(정확히 10문제)를 정답과 함께 받아 기기에서 채점하고, 서버에는 배정 기록 번호와 성장률만 제출합니다. 완료한 세트는 다음 출제에서 제외하며, 정답 수 × 10% 보상은 결과를 닫을 때 한 번 적용합니다. 서버는 날짜·소유자·성장률 범위·중복 보상을 검증합니다. 모든 문제는 보기 네 개입니다.
 
 ```powershell
-node backend/manage.cjs import-quiz backend/content/이번주.json
+node backend/manage.cjs import-quiz-bank backend/content/quiz-bank.json
 node backend/manage.cjs import-special backend/content/특별미션.json
 ```
 
-팝업 디자인과 진행 UI는 `lib/missions/quiz/popup.dart`, `lib/missions/special/popup.dart`에서 수정합니다. [미션 편집 안내](lib/missions/README.md)를 참고하세요.
+팝업 디자인과 진행 UI는 `lib/missions/quiz/set_popup.dart`, `lib/missions/special/popup.dart`에서 수정합니다. 문제 파일 자동 반영과 이전 주간 퀴즈 호환은 [미션 편집 안내](lib/missions/README.md)를 참고하세요.
 
 ## 검증
 
@@ -100,7 +100,7 @@ flutter analyze
 flutter test
 ```
 
-실제 Chrome 통합 검증은 로컬 API 주소로 빌드하고 프론트 서버를 켠 뒤 `node tests/flutter.browser.test.cjs`로 실행합니다. 검증용 임시 DB를 만들고 8787 포트의 API를 직접 시작·종료하므로, 그 포트의 개발 백엔드는 먼저 종료하세요. PIN 등록·서버 채점·보상·수확·도감·서버 중단/복구·모바일/태블릿/PC를 확인합니다.
+실제 Chrome 통합 검증은 로컬 API 주소로 빌드하고 프론트 서버를 켠 뒤 `node tests/flutter.browser.test.cjs`로 실행합니다. 검증용 임시 DB를 만들고 API를 직접 시작·종료합니다. 가동 서버가 있으면 다른 포트로 빌드하고 `GROWGAME_TEST_API_PORT`를 지정해 분리하세요. PIN 등록·기기 채점·요약 제출·보상·수확·도감·서버 중단/복구·모바일/태블릿/PC를 확인합니다.
 
 이 작업 환경의 SDK는 `C:\tmp\growgame-flutter-sdk`입니다. PATH에 없으면 `flutter` 대신 `& 'C:\tmp\growgame-flutter-sdk\bin\flutter.bat'`을 사용합니다. 한글 경로에서 분석 서버 오류가 나면 비어 있는 영문 드라이브 별칭을 만들어 사용합니다.
 

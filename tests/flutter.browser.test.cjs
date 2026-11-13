@@ -31,6 +31,8 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     await new Promise(resolve => socket.addEventListener('open', resolve, {once: true}));
     let sequence = 0, pausedAction = null, pausedFont = null;
     const healthMethods=[];
+    const quizRequests=[];
+    const quizClaims=[];
     const pending = new Map(), errors = [], harvestImages = new Map(), cropImages = new Map(), missionRequests = [];
     socket.addEventListener('message', event => {
       const m = JSON.parse(event.data);
@@ -41,6 +43,11 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
       if (m.method === 'Network.requestWillBeSent') {
         const url=m.params.request.url;
         if(url.endsWith('/api/health'))healthMethods.push(m.params.request.method);
+        if (m.params.request.method==='POST' && /\/api\/quiz-runs(?:\/submit)?$/.test(url)) quizRequests.push({url,body:JSON.parse(m.params.request.postData)});
+        if (m.params.request.method==='POST' && url.endsWith('/api/actions')) {
+          const body=JSON.parse(m.params.request.postData);
+          if(body.kind==='quiz-set')quizClaims.push(body);
+        }
         if (/\/rice-stage-0[1-4]-[a-f0-9]+\.webp/.test(url)) cropImages.set(m.params.requestId,{url,complete:false});
         if (/\/api\/(quizzes|missions)\/current/.test(url)) missionRequests.push(url);
       }
@@ -67,7 +74,7 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
       throw Error('대기 시간 초과: ' + expression + '\n' + JSON.stringify(errors));
     };
     await send('Runtime.enable');
-    await send('Network.enable');
+    await send('Network.enable',{maxPostDataSize:4096});
     await send('Page.enable');
     await send('Fetch.enable',{patterns:[{urlPattern:'*NotoSansKR-extended-*.woff2',requestStage:'Request'}]});
     await send('Emulation.setDeviceMetricsOverride', {width: 390, height: 844, deviceScaleFactor: 1, mobile: true});
@@ -140,15 +147,30 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     for(let i=1;i<=10;i++) {
       await wait(`document.querySelector('flt-semantics-host')?.textContent.includes('영어 테스트 문제 ${i}')`);
       await clickText('첫 번째 답');
+      assert.equal(quizRequests.length,1,'문제 풀이 중 서버 통신 없음');
       await clickText(i===10?'채점하고 정답 보기':'다음 문제');
     }
     await wait("document.querySelector('flt-semantics-host')?.textContent.includes('10문제 중 3문제 정답')");
+    assert.equal(quizRequests.length,2,'세트 배정과 결과 요약 제출을 각각 한 번 요청');
+    assert.deepEqual(quizRequests[1].body,{runId:1,growth:30},'성장률과 배정 기록 번호만 제출');
+    assert.deepEqual(JSON.parse(app.store.db.prepare('SELECT result_json FROM quiz_runs WHERE id=1').get().result_json),
+      {correctCount:3,growth:30},'선택 답안은 서버에 저장하지 않음');
     assert.equal(app.store.snapshot(1).progress,50,'정답 확인 중에는 성장 보상 대기');
     const reviewShot=await send('Page.captureScreenshot');
     fs.writeFileSync(path.join(os.tmpdir(),'growgame-quiz-set-review.png'),Buffer.from(reviewShot.data,'base64'));
     await clickText('닫기');
     await wait("document.querySelector('flt-semantics-host')?.textContent.includes('80 / 100%')");
     await sleep(1900);
+    assert.equal(quizClaims.length,1,'기존 성장 처리 경로를 한 번만 호출');
+    assert.deepEqual(Object.keys(quizClaims[0]).sort(),['kind','requestId','runId'],'기존 성장 요청에 성장률을 중복 제출하지 않음');
+    await clickText('미션'); await clickText('퀴즈 미션');
+    await clickText('영어 · 오늘 완료 · 정답 보기');
+    await wait("document.querySelector('flt-semantics-host')?.textContent.includes('10문제 중 3문제 정답')");
+    assert.equal(app.store.db.prepare('SELECT COUNT(*) n FROM quiz_runs').get().n,1,'같은 날 완료한 과목은 새 세트 배정 없음');
+    assert.equal(quizRequests.filter(r=>r.url.endsWith('/submit')).length,1,'결과를 다시 열어도 재제출 없음');
+    await clickText('닫기');
+    assert.equal(app.store.snapshot(1).progress,80,'결과 다시 열기로 중복 성장 없음');
+    assert.equal(quizClaims.length,1,'완료 결과를 다시 닫아도 성장 요청을 재전송하지 않음');
     await send('Fetch.enable',{patterns:[{urlPattern:'*/api/actions',requestStage:'Request'}]});
     await clickText('물 주기');
     assert.ok(pausedAction);
@@ -186,7 +208,7 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     await startApi(); await clickText('도감');
     await wait("!document.querySelector('flt-semantics-host')?.textContent.includes('서버 연결 안 됨')");
     assert.equal(errors.length, 0, JSON.stringify(errors));
-    console.log('Flutter Chrome 통과: PIN 등록 → 서버 채점 → 성장·수확·도감 저장 → 오프라인·복구 · 3가지 화면');
+    console.log('Flutter Chrome 통과: PIN 등록 → 기기 채점·요약 제출 → 완료 결과 재조회 → 성장·수확·도감 저장 → 오프라인·복구 · 3가지 화면');
   } finally {
     socket?.close(); proc.kill();
     if(app.server.listening) await stopApi();

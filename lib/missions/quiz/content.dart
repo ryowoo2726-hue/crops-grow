@@ -28,12 +28,16 @@ List<QuizQuestion> parseQuizQuestions(dynamic raw) {
         item['id'] is! int ||
         item['question'] is! String ||
         item['choices'] is! List ||
-        !(item['choices'] as List).every((c) => c is String))
+        !(item['choices'] as List).every((c) => c is String) ||
+        (item['correctIndex'] != null && item['correctIndex'] is! int) ||
+        (item['explanation'] != null && item['explanation'] is! String))
       throw const FormatException('퀴즈 형식 오류');
     final question = QuizQuestion(
       id: item['id'],
       question: item['question'],
       choices: List<String>.from(item['choices']),
+      correctIndex: item['correctIndex'] as int?,
+      explanation: item['explanation'] as String? ?? '',
     );
     if (!question.isValid) throw const FormatException('4지선다 퀴즈가 아닙니다.');
     return question;

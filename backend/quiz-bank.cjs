@@ -78,7 +78,7 @@ function createQuizBank(db, {now, dayAt, fail}) {
   function present(row) {
     const questions = JSON.parse(row.questions_json);
     return {id:row.id, subject:row.subject, day:row.day, setId:row.set_id, claimed:!!row.claimed,
-      questions:questions.map((q, id) => ({id, question:q.question, choices:q.choices})),
+      questions:questions.map((q, id) => ({id, ...q})),
       result:row.result_json ? JSON.parse(row.result_json) : null};
   }
 
@@ -104,7 +104,12 @@ function createQuizBank(db, {now, dayAt, fail}) {
   }
 
   function submit(playerId, input) {
-    if (!Number.isSafeInteger(input.runId) || !Array.isArray(input.answers) || input.answers.length !== 10 ||
+    if (!Number.isSafeInteger(input.runId)) fail(400, '퀴즈 기록을 확인하세요.');
+    const clientGraded = input.growth !== undefined;
+    if (clientGraded) {
+      if (!Number.isInteger(input.growth) || input.growth < 0 || input.growth > 100 || input.growth % 10 !== 0)
+        fail(400, '성장 보상은 0~100 사이의 10 단위로 입력하세요.');
+    } else if (!Array.isArray(input.answers) || input.answers.length !== 10 ||
         input.answers.some(a => !Number.isInteger(a) || a < 0 || a > 3)) fail(400, '10문제의 답을 모두 선택하세요.');
     db.exec('BEGIN IMMEDIATE');
     try {
@@ -112,16 +117,23 @@ function createQuizBank(db, {now, dayAt, fail}) {
       if (!run) fail(404, '퀴즈 기록을 찾을 수 없어요.');
       if (!run.result_json) {
         if (run.day !== dayAt(now())) fail(409, '날짜가 바뀌었어요. 오늘의 문제를 다시 열어 주세요.');
-        const questions = JSON.parse(run.questions_json);
-        const answers = questions.map((q, i) => ({selected:input.answers[i], correctIndex:q.correctIndex,
-          correct:input.answers[i] === q.correctIndex, explanation:q.explanation}));
-        const correctCount = answers.filter(a => a.correct).length;
-        const result = {correctCount, growth:correctCount * 10, answers};
+        let result;
+        if (clientGraded) {
+          // shortcut: client scores can be forged, submit answers if trusted scoring is needed.
+          result = {correctCount:input.growth / 10, growth:input.growth};
+        } else {
+          // Keep already-open clients working during the frontend update.
+          const questions = JSON.parse(run.questions_json);
+          const answers = questions.map((q, i) => ({selected:input.answers[i], correctIndex:q.correctIndex,
+            correct:input.answers[i] === q.correctIndex, explanation:q.explanation}));
+          const correctCount = answers.filter(a => a.correct).length;
+          result = {correctCount, growth:correctCount * 10, answers};
+        }
         db.prepare('UPDATE quiz_runs SET result_json=? WHERE id=?').run(JSON.stringify(result), run.id);
         run.result_json = JSON.stringify(result);
       }
       db.exec('COMMIT');
-      return present(run);
+      return clientGraded ? {result:JSON.parse(run.result_json), claimed:!!run.claimed} : present(run);
     } catch (error) { db.exec('ROLLBACK'); throw error; }
   }
 

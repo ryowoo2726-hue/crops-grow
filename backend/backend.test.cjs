@@ -27,7 +27,7 @@ test('신규 등록 경쟁과 재시도: 같은 번호 한 명, 다른 PIN 거�
   await assert.rejects(app.store.login(profile,pin),e=>e.status===429);
 });
 
-test('과목별 하루 10문제, 완료 이력, 일괄 채점과 보상은 재시도·재시작에도 유지',async t=>{
+test('과목당 하루 한 세트, 기기 채점 요약과 완료 이력·보상은 재시도·재시작에도 유지',async t=>{
   const directory=fs.mkdtempSync(path.join(os.tmpdir(),'growgame-quiz-sets-'));
   const bankFile=path.join(directory,'bank.json');
   const set=(id,subject='영어')=>({id,subject,title:id,questions:Array.from({length:10},(_,i)=>({
@@ -51,16 +51,30 @@ test('과목별 하루 10문제, 완료 이력, 일괄 채점과 보상은 재�
   assert.equal((await request('/api/quiz-subjects')).data.subjects.length,2);
   const run=(await request('/api/quiz-runs',{subject:'영어'})).data;
   assert.equal(run.questions.length,10);
-  assert.ok(!JSON.stringify(run).includes('correctIndex'));
+  assert.deepEqual(run.questions.map(q=>q.correctIndex),Array.from({length:10},(_,i)=>i%4));
+  assert.equal(run.questions[0].explanation,'해설 1');
   assert.equal((await request('/api/quiz-runs',{subject:'영어'})).data.id,run.id);
   assert.equal((await request('/api/quiz-runs/submit',{runId:run.id,answers:[0]})).status,400);
-  const answers=Array.from({length:10},(_,i)=>i<3?i%4:(i+1)%4);
-  assert.equal((await request('/api/quiz-runs/submit',{runId:run.id,answers},other.token)).status,404);
-  const result=await request('/api/quiz-runs/submit',{runId:run.id,answers});
+  for(const growth of [-10,110,15,30.5,'30',null]) {
+    assert.equal((await request('/api/quiz-runs/submit',{runId:run.id,growth})).status,400);
+  }
+  assert.equal((await request('/api/quiz-runs/submit',{runId:run.id,growth:30},other.token)).status,404);
+  const result=await request('/api/quiz-runs/submit',{runId:run.id,growth:30});
+  assert.equal(result.status,200);
+  assert.deepEqual(Object.keys(result.data).sort(),['claimed','result'],'제출 응답에 문제·정답을 재전송하지 않음');
+  assert.deepEqual(JSON.parse(app.store.db.prepare('SELECT result_json FROM quiz_runs WHERE id=?').get(run.id).result_json),
+    {correctCount:3,growth:30},'기기 채점은 선택한 답 대신 성장률 요약만 저장');
   assert.equal(result.data.result.correctCount,3);
   assert.equal(result.data.result.growth,30);
   assert.equal(app.store.snapshot(player).progress,0,'채점만으로 성장하지 않음');
+  assert.equal((await request('/api/quiz-runs/submit',{runId:run.id,growth:100})).data.result.correctCount,3,'요약 재제출로 점수 변경 불가');
   assert.equal((await request('/api/quiz-runs/submit',{runId:run.id,answers:Array.from({length:10},(_,i)=>i%4)})).data.result.correctCount,3,'첫 채점은 불변');
+  const sameDay=(await request('/api/quiz-runs',{subject:'영어'})).data;
+  assert.equal(sameDay.id,run.id,'같은 날 같은 과목은 새 세트를 배정하지 않음');
+  assert.equal(sameDay.result.growth,30);
+  const science=(await request('/api/quiz-runs',{subject:'과학'})).data;
+  await request('/api/quiz-runs/submit',{runId:science.id,growth:30});
+  assert.equal((await request('/api/quiz-runs',{subject:'과학'})).data.id,science.id,'다른 과목은 같은 날 별도로 한 세트 풀이');
   // Reward collection can be resumed after midnight and a process restart.
   clock+=120000;
   await new Promise(resolve=>app.server.close(resolve));app.store.db.close();
@@ -74,11 +88,9 @@ test('과목별 하루 10문제, 완료 이력, 일괄 채점과 보상은 재�
   const next=(await request('/api/quiz-runs',{subject:'영어'})).data;
   assert.notEqual(next.setId,run.setId);
   assert.equal((await request('/api/actions',{...claim,runId:next.id})).status,409);
-  const science=(await request('/api/quiz-runs',{subject:'과학'})).data;
-  await request('/api/quiz-runs/submit',{runId:science.id,answers:Array(10).fill(0)});
   assert.equal((await request('/api/actions',{kind:'quiz-set',runId:science.id,requestId:'science-claim-0001'})).data.state.progress,60,'과목별 보상은 특별 미션 일일 제한과 독립');
   const allCorrect=Array.from({length:10},(_,i)=>i%4);
-  await request('/api/quiz-runs/submit',{runId:next.id,answers:allCorrect});
+  await request('/api/quiz-runs/submit',{runId:next.id,growth:100});
   assert.equal((await request('/api/actions',{kind:'quiz-set',runId:next.id,requestId:'english-claim-0003'})).data.state.progress,100,'성장도 100% 상한');
   assert.equal((await request('/api/quiz-runs',{subject:'영어'})).data.id,next.id,'완료한 날에는 같은 결과 조회');
   clock+=86400000;
@@ -101,7 +113,7 @@ test('과목별 하루 10문제, 완료 이력, 일괄 채점과 보상은 재�
   const secondSession=await app.store.login({grade:1,classNo:1,number:2},'4321');
   const second=app.store.authenticate(secondSession.token);
   const empty=app.store.quizBank.start(second,{subject:'영어'});
-  app.store.quizBank.submit(second,{runId:empty.id,answers:Array.from({length:10},(_,i)=>(i+1)%4)});
+  app.store.quizBank.submit(second,{runId:empty.id,growth:0});
   app.store.db.prepare('UPDATE players SET progress=100 WHERE id=?').run(second);
   assert.equal(app.store.action(second,{kind:'quiz-set',runId:empty.id,requestId:'zero-growth-000001'}).growth,0,'0점도 완료되고 보상은 없음');
   const pending=app.store.quizBank.start(second,{subject:'과학'});
