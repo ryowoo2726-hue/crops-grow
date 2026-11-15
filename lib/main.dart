@@ -15,6 +15,8 @@ import 'missions/quiz/content.dart';
 import 'missions/quiz/popup.dart';
 import 'missions/quiz/set_popup.dart';
 import 'missions/special/popup.dart';
+import 'rankings/board.dart';
+import 'missions/quiz/status_stamp.dart';
 import 'storage_stub.dart' if (dart.library.js_interop) 'storage.dart';
 
 const ink = Color(0xff284b39);
@@ -159,11 +161,11 @@ class _FarmGameState extends State<FarmGame>
   bool get cropReady =>
       !remote || r['cropId'] == null || loadedCrop == r['cropId'];
   String? loginError;
-  Map<String, dynamic> gardenData = {
-    'items': <dynamic>[],
-    'total': 0,
-    'pages': 1,
-  };
+  Map<String, dynamic>? rankingData;
+  String rankingScope = 'individual';
+  bool rankingsLoading = false;
+  String? rankingsError;
+  int rankingRequest = 0;
   bool get remote => !widget.demo;
   int get harvestCount => remote ? (r['harvestCount'] as int) : harvests.length;
   int cropCount(String crop) => remote
@@ -303,6 +305,10 @@ class _FarmGameState extends State<FarmGame>
 
   Future<void> refreshRemote() async {
     if (refreshing || busy || record == null) return;
+    if (tab == 1) {
+      if (!rankingsLoading) await loadRankings(page);
+      return;
+    }
     refreshing = true;
     final session = backend.token;
     try {
@@ -349,18 +355,36 @@ class _FarmGameState extends State<FarmGame>
     }
   }
 
-  Future<void> loadGarden(int target) async {
+  Future<void> loadRankings(int target) async {
     final session = backend.token;
+    final scope = rankingScope;
+    final request = ++rankingRequest;
+    setState(() {
+      rankingsLoading = true;
+      rankingsError = null;
+    });
     try {
-      final data = await backend.call('GET', '/api/garden?page=$target');
-      if (mounted && record != null && backend.token == session)
+      final data = await backend.call(
+        'GET',
+        '/api/rankings?scope=$scope&page=$target',
+      );
+      if (mounted &&
+          record != null &&
+          backend.token == session &&
+          request == rankingRequest)
         setState(() {
-          gardenData = data;
+          rankingData = data;
           page = data['page'];
           disconnected = false;
         });
     } catch (error) {
-      remoteError(error);
+      if (mounted && backend.token == session && request == rankingRequest) {
+        remoteError(error);
+        setState(() => rankingsError = '랭킹을 불러오지 못했어요. 새로고침해 주세요.');
+      }
+    } finally {
+      if (mounted && request == rankingRequest)
+        setState(() => rankingsLoading = false);
     }
   }
 
@@ -369,7 +393,7 @@ class _FarmGameState extends State<FarmGame>
     setState(() => tab = value);
     if (remote) {
       if (value == 1) {
-        loadGarden(page);
+        loadRankings(page);
       } else {
         refreshRemote();
       }
@@ -431,12 +455,7 @@ class _FarmGameState extends State<FarmGame>
       );
     }
     // Three small requests at a time keep visible crop requests responsive.
-    final thumbnails = [
-      for (final crop in crops.keys) ...[
-        'crops/$crop-thumb',
-        'crops/$crop-garden',
-      ],
-    ];
+    final thumbnails = [for (final crop in crops.keys) 'crops/$crop-thumb'];
     for (var i = 0; i < thumbnails.length; i += 3) {
       if (!mounted) return;
       await Future.wait([
@@ -686,9 +705,8 @@ class _FarmGameState extends State<FarmGame>
         setState(() {
           tab = 0;
           page = 0;
-          gardenData =
-              result['garden'] as Map<String, dynamic>? ??
-              {'items': <dynamic>[], 'total': 0, 'pages': 1};
+          rankingData = null;
+          rankingScope = 'individual';
         });
         pin.clear();
       } catch (error) {
@@ -901,14 +919,25 @@ class _FarmGameState extends State<FarmGame>
                     Navigator.pop(context, item['subject'] as String),
                 child: Padding(
                   padding: const EdgeInsets.symmetric(vertical: 12),
-                  child: Text(
-                    '${item['subject']} · ${item['completed'] == true
-                        ? item['claimed'] == true
-                              ? '오늘 완료 · 정답 보기'
-                              : '정답 보기 · 보상 받기'
-                        : item['remaining'] == 0
-                        ? '새 문제 준비 중'
-                        : '오늘의 10문제'}',
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          '${item['subject']} · ${item['completed'] == true
+                              ? item['claimed'] == true
+                                    ? '오늘 완료 · 정답 보기'
+                                    : '정답 보기 · 보상 받기'
+                              : item['remaining'] == 0
+                              ? '새 문제 준비 중'
+                              : '오늘의 10문제'}',
+                        ),
+                      ),
+                      if (item['completed'] == true) ...[
+                        const SizedBox(width: 12),
+                        const QuizStatusStamp(),
+                      ] else
+                        const Icon(Icons.chevron_right),
+                    ],
                   ),
                 ),
               ),
@@ -1164,7 +1193,6 @@ class _FarmGameState extends State<FarmGame>
         });
         r['cropId'] = null;
         r['progress'] = 0;
-        page = (classHarvests().length - 1) ~/ 9;
       });
     }
     save();
@@ -1175,17 +1203,17 @@ class _FarmGameState extends State<FarmGame>
           image('crops/$crop-harvest', height: 170),
           heading('+1', size: 28),
           Text(
-            '우리 반 정원에 ${crops[crop]} 수확이 더해졌어요.',
+            '${crops[crop]} 수확이 개인·반 랭킹에 반영됐어요.',
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: 22),
           action('다음 작물 심기', () => Navigator.pop(context, true)),
           const SizedBox(height: 10),
           action(
-            '정원 보기',
+            '랭킹 보기',
             () => Navigator.pop(context, false),
             soft: true,
-            icon: Icons.local_florist,
+            icon: Icons.leaderboard_outlined,
           ),
         ],
       ),
@@ -1238,19 +1266,6 @@ class _FarmGameState extends State<FarmGame>
     save();
   }
 
-  List<dynamic> classHarvests() {
-    final p = r['profile'];
-    return records
-        .where(
-          (e) =>
-              e['profile']['grade'] == p['grade'] &&
-              e['profile']['classNo'] == p['classNo'],
-        )
-        .expand((e) => e['harvests'] as List)
-        .toList()
-      ..sort((a, b) => (a['at'] as String).compareTo(b['at']));
-  }
-
   Future<void> settings() async {
     final choice = await popup<String>(
       '설정',
@@ -1273,7 +1288,7 @@ class _FarmGameState extends State<FarmGame>
           Text(
             remote
                 ? '기록은 서버에 저장됩니다.\n하루 참여 규칙은 서버에서 정합니다.'
-                : '이 브라우저에 기록하는 체험판입니다.\n반 정원에는 여기서 참여한 같은 반의 수확만 모여요.',
+                : '이 브라우저에 기록하는 체험판입니다.\n여기서 참여한 기록으로 랭킹을 보여줘요.',
             style: TextStyle(fontSize: 13),
             textAlign: TextAlign.center,
           ),
@@ -1757,110 +1772,43 @@ class _FarmGameState extends State<FarmGame>
     );
   }
 
-  Widget garden() {
-    final items = remote ? gardenData['items'] as List : classHarvests();
-    final total = remote ? gardenData['total'] as int : items.length;
-    final pages = remote
-        ? gardenData['pages'] as int
-        : math.max(1, (items.length / 9).ceil());
-    page = page.clamp(0, pages - 1);
-    return Column(
-      children: [
-        heading('${r['profile']['grade']}학년 ${r['profile']['classNo']}반 정원'),
-        const SizedBox(height: 12),
-        panel(
-          Column(
-            children: [
-              Text('수확 $total개 · 꽃이 피기까지 ${5 - total % 5}개'),
-              const SizedBox(height: 10),
-              LinearProgressIndicator(
-                value: total % 5 / 5,
-                minHeight: 10,
-                color: green,
-              ),
-            ],
+  Widget rankingBoard() => RankingsBoard(
+    scope: rankingScope,
+    data: remote
+        ? rankingData
+        : localRankings(
+            records,
+            Map<String, dynamic>.from(r['profile']),
+            rankingScope,
+            page,
           ),
-        ),
-        const SizedBox(height: 16),
-        Expanded(
-          child: Center(
-            child: AspectRatio(
-              aspectRatio: 1,
-              child: panel(
-                GridView.count(
-                  crossAxisCount: 3,
-                  physics: const NeverScrollableScrollPhysics(),
-                  padding: EdgeInsets.zero,
-                  children: [
-                    for (var slot = 0; slot < 9; slot++)
-                      Builder(
-                        builder: (context) {
-                          final index = remote ? slot : page * 9 + slot;
-                          final crop = index < items.length
-                              ? items[index]['cropId'] as String
-                              : null;
-                          return Semantics(
-                            label: crop == null ? '수확을 기다리는 빈 칸' : crops[crop],
-                            child: Stack(
-                              fit: StackFit.expand,
-                              children: [
-                                image(
-                                  'environment/${crop == 'rice' ? 'field-base' : 'field-dry-base'}',
-                                ),
-                                if (crop != null)
-                                  image('crops/$crop-garden', decodeWidth: 256)
-                                else
-                                  const Center(
-                                    child: Icon(Icons.add, color: green),
-                                  ),
-                              ],
-                            ),
-                          );
-                        },
-                      ),
-                  ],
-                ),
-                padding: const EdgeInsets.all(8),
-              ),
-            ),
-          ),
-        ),
-        const SizedBox(height: 12),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            IconButton(
-              tooltip: '이전 정원 구역',
-              onPressed: page > 0
-                  ? () {
-                      if (remote) {
-                        loadGarden(page - 1);
-                      } else {
-                        setState(() => page--);
-                      }
-                    }
-                  : null,
-              icon: const Icon(Icons.chevron_left),
-            ),
-            Text('${page + 1} / $pages'),
-            IconButton(
-              tooltip: '다음 정원 구역',
-              onPressed: page < pages - 1
-                  ? () {
-                      if (remote) {
-                        loadGarden(page + 1);
-                      } else {
-                        setState(() => page++);
-                      }
-                    }
-                  : null,
-              icon: const Icon(Icons.chevron_right),
-            ),
-          ],
-        ),
-      ],
-    );
-  }
+    loading: remote && rankingsLoading,
+    error: remote ? rankingsError : null,
+    onScopeChanged: (scope) {
+      setState(() {
+        rankingScope = scope;
+        page = 0;
+        if (rankingData != null)
+          rankingData = {
+            'summary': rankingData!['summary'],
+            'items': <dynamic>[],
+            'page': 0,
+            'pages': 1,
+          };
+      });
+      if (remote) loadRankings(0);
+    },
+    onPageChanged: (target) {
+      if (remote) {
+        loadRankings(target);
+      } else {
+        setState(() => page = target);
+      }
+    },
+    onRefresh: () {
+      if (remote) loadRankings(page);
+    },
+  );
 
   Widget book() => Column(
     children: [
@@ -1935,7 +1883,7 @@ class _FarmGameState extends State<FarmGame>
               Expanded(
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
-                  child: [farm, garden, book][tab](),
+                  child: [farm, rankingBoard, book][tab](),
                 ),
               ),
               DecoratedBox(
@@ -1957,9 +1905,9 @@ class _FarmGameState extends State<FarmGame>
                       label: '내 밭',
                     ),
                     NavigationDestination(
-                      icon: Icon(Icons.local_florist_outlined),
-                      selectedIcon: Icon(Icons.local_florist),
-                      label: '반 정원',
+                      icon: Icon(Icons.leaderboard_outlined),
+                      selectedIcon: Icon(Icons.leaderboard),
+                      label: '랭킹 보드',
                     ),
                     NavigationDestination(
                       icon: Icon(Icons.menu_book_outlined),

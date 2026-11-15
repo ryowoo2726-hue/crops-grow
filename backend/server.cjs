@@ -67,6 +67,7 @@ function createBackend({directory,origins=['http://localhost:4174','http://127.0
       }
       if (req.method==='GET' && url.pathname==='/api/me') { reply(200,{state:store.snapshot(playerId)}); return; }
       if (req.method==='GET' && url.pathname==='/api/garden') { reply(200,store.garden(playerId,Number(url.searchParams.get('page')||0))); return; }
+      if (req.method==='GET' && url.pathname==='/api/rankings') { reply(200,store.rankings(playerId,url.searchParams.get('scope')||'individual',Number(url.searchParams.get('page')||0))); return; }
       if (req.method==='GET' && url.pathname==='/api/quizzes/current') { reply(200,store.quiz()); return; }
       if (req.method==='GET' && url.pathname==='/api/missions/current') { reply(200,{mission:store.special()}); return; }
       if (req.method==='POST' && url.pathname==='/api/quizzes/check') { reply(200,store.checkAnswer(playerId,input)); return; }

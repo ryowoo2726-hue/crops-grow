@@ -93,3 +93,72 @@ bool growRecord(Map<String, dynamic> record, String kind) {
   record['${kind}Day'] = seoulDay();
   return true;
 }
+
+Map<String, dynamic> localRankings(
+  List<Map<String, dynamic>> records,
+  Map<String, dynamic> profile,
+  String scope,
+  int page,
+) {
+  final individuals = <Map<String, dynamic>>[
+    for (final record in records)
+      {
+        ...record['profile'] as Map<String, dynamic>,
+        'harvestCount': (record['harvests'] as List).length,
+      },
+  ];
+  final classes = <String, Map<String, dynamic>>{};
+  for (final item in individuals) {
+    final key = '${item['grade']}-${item['classNo']}';
+    final group = classes.putIfAbsent(
+      key,
+      () => {
+        'grade': item['grade'],
+        'classNo': item['classNo'],
+        'harvestCount': 0,
+        'studentCount': 0,
+      },
+    );
+    group['harvestCount'] =
+        (group['harvestCount'] as int) + (item['harvestCount'] as int);
+    group['studentCount'] = (group['studentCount'] as int) + 1;
+  }
+  final classItems = classes.values.toList();
+  for (final list in [individuals, classItems]) {
+    list.sort((a, b) {
+      for (final key in ['harvestCount', 'grade', 'classNo', 'number']) {
+        final order = key == 'harvestCount'
+            ? (b[key] as int).compareTo(a[key] as int)
+            : ((a[key] ?? 0) as int).compareTo((b[key] ?? 0) as int);
+        if (order != 0) return order;
+      }
+      return 0;
+    });
+    var rank = 0;
+    int? previousCount;
+    for (var i = 0; i < list.length; i++) {
+      final item = list[i];
+      if (item['harvestCount'] != previousCount) rank = i + 1;
+      previousCount = item['harvestCount'] as int;
+      item['rank'] = rank;
+      item['isSelf'] =
+          item['grade'] == profile['grade'] &&
+          item['classNo'] == profile['classNo'] &&
+          (item['number'] == null || item['number'] == profile['number']);
+    }
+  }
+  final items = scope == 'individual' ? individuals : classItems;
+  final pages = (items.length / 10).ceil().clamp(1, 100000);
+  page = page.clamp(0, pages - 1);
+  return {
+    'scope': scope,
+    'page': page,
+    'pages': pages,
+    'total': items.length,
+    'items': items.skip(page * 10).take(10).toList(),
+    'summary': {
+      'individual': individuals.where((i) => i['isSelf'] == true).firstOrNull,
+      'class': classItems.where((i) => i['isSelf'] == true).firstOrNull,
+    },
+  };
+}

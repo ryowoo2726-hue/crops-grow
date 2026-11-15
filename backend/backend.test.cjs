@@ -7,6 +7,52 @@ const {backup}=require('node:sqlite');
 const {createBackend}=require('./server.cjs');
 const {hashPassword}=require('./admin.cjs');
 
+test('수확 랭킹: 개인·반 공동 순위, 내 순위 고정 요약, 페이지, 수확·삭제 반영',async t=>{
+  const directory=fs.mkdtempSync(path.join(os.tmpdir(),'growgame-rankings-'));
+  const app=createBackend({directory});
+  await new Promise(resolve=>app.server.listen(0,'127.0.0.1',resolve));
+  t.after(async()=>{await new Promise(resolve=>app.server.close(resolve));app.store.db.close();assert.ok(directory.startsWith(path.resolve(os.tmpdir())+path.sep));fs.rmSync(directory,{recursive:true,force:true});});
+  const profiles=[{grade:1,classNo:1,number:1},{grade:1,classNo:1,number:2},
+    {grade:1,classNo:2,number:1},{grade:2,classNo:1,number:1},
+    ...Array.from({length:9},(_,i)=>({grade:3,classNo:1,number:i+1}))];
+  const sessions=await Promise.all(profiles.map(p=>app.store.login(p,'1234')));
+  const ids=sessions.map(s=>app.store.authenticate(s.token));
+  const insert=app.store.db.prepare('INSERT INTO harvests(player_id,crop_id,created_at) VALUES(?,?,?)');
+  for(let i=0;i<4;i++)for(let n=0;n<[2,3,5,1][i];n++)insert.run(ids[i],n%2?'apple':'rice',new Date().toISOString());
+  const base=`http://127.0.0.1:${app.server.address().port}`;
+  const query=async(route,token=sessions[0].token)=>{
+    const response=await fetch(base+route,{headers:token?{Authorization:`Bearer ${token}`}:{}});
+    return {status:response.status,data:await response.json(),headers:response.headers};
+  };
+  assert.equal((await query('/api/rankings','')).status,401);
+  for(const suffix of ['?scope=other','?page=-1','?page=1.5','?page=NaN'])
+    assert.equal((await query('/api/rankings'+suffix)).status,400);
+  const individual=await query('/api/rankings?scope=individual');
+  assert.equal(individual.headers.get('cache-control'),'no-store');
+  assert.equal(individual.data.total,13);assert.equal(individual.data.pages,2);
+  assert.deepEqual(individual.data.summary,{individual:{rank:3,harvestCount:2},class:{rank:1,harvestCount:5}});
+  assert.deepEqual(individual.data.items.slice(0,4).map(i=>i.harvestCount),[5,3,2,1]);
+  assert.equal(individual.data.items[2].isSelf,true);
+  assert.deepEqual(Object.keys(individual.data.items[0]).sort(),['rank','grade','classNo','number','harvestCount','isSelf'].sort());
+  const second=(await query('/api/rankings?page=1')).data;
+  assert.deepEqual(second.summary,individual.data.summary);
+  assert.equal(second.items.length,3);assert.ok(second.items.every(i=>i.rank===5));
+  assert.equal((await query('/api/rankings?page=999')).data.page,1);
+  const classes=(await query('/api/rankings?scope=class')).data;
+  assert.equal(classes.total,4);
+  assert.deepEqual(classes.items.map(i=>i.rank),[1,1,3,4]);
+  assert.deepEqual(classes.items.map(i=>i.harvestCount),[5,5,1,0]);
+  assert.equal(classes.items[0].studentCount,2);assert.equal(classes.items[0].isSelf,true);
+  app.store.db.prepare('UPDATE players SET progress=100 WHERE id=?').run(ids[0]);
+  const harvest={kind:'harvest',requestId:'ranking-harvest-0001'};
+  app.store.action(ids[0],harvest);app.store.action(ids[0],harvest);
+  const updated=(await query('/api/rankings')).data;
+  assert.deepEqual(updated.summary,{individual:{rank:2,harvestCount:3},class:{rank:1,harvestCount:6}});
+  app.store.deleteStudent(profiles[2]);
+  const removed=(await query('/api/rankings?scope=class')).data;
+  assert.equal(removed.total,3);assert.equal(removed.summary.individual.rank,1);
+});
+
 test('신규 등록 경쟁과 재시도: 같은 번호 한 명, 다른 PIN 거부, 잠금 유지',async t=>{
   const directory=fs.mkdtempSync(path.join(os.tmpdir(),'growgame-register-race-'));
   const app=createBackend({directory});

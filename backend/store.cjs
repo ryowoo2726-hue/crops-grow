@@ -174,6 +174,38 @@ function openStore(directory, {now = Date.now, dailyLimit = false} = {}) {
     const items = db.prepare('SELECT h.id,h.crop_id cropId,h.created_at at '+filter+' ORDER BY h.id LIMIT 9 OFFSET ?').all(p.grade,p.class_no,page*9);
     return {items,total,pages,page};
   }
+  function rankings(playerId, scope, page) {
+    if (!['individual','class'].includes(scope) || !Number.isSafeInteger(page) || page<0 || page>100000)
+      fail(400,'랭킹 구분과 페이지를 확인해 주세요.');
+    const player = getPlayer(playerId);
+    const totals = `WITH totals AS (
+      SELECT p.id,p.grade,p.class_no,p.number,COUNT(h.id) harvestCount
+      FROM players p LEFT JOIN harvests h ON h.player_id=p.id GROUP BY p.id
+    )`;
+    const individuals = `${totals}, ranked AS (SELECT *,RANK() OVER(ORDER BY harvestCount DESC) rank FROM totals)`;
+    const classes = `${totals}, classes AS (
+          SELECT grade,class_no,SUM(harvestCount) harvestCount,COUNT(*) studentCount
+          FROM totals GROUP BY grade,class_no
+        ), ranked AS (SELECT *,RANK() OVER(ORDER BY harvestCount DESC) rank FROM classes)`;
+    const ranked = scope==='individual' ? individuals : classes;
+    const columns = scope==='individual'
+      ? 'rank,grade,class_no classNo,number,harvestCount'
+      : 'rank,grade,class_no classNo,harvestCount,studentCount';
+    const total = scope==='individual'
+      ? db.prepare('SELECT COUNT(*) n FROM players').get().n
+      : db.prepare('SELECT COUNT(*) n FROM (SELECT DISTINCT grade,class_no FROM players)').get().n;
+    const pages = Math.max(1,Math.ceil(total/10));
+    page = Math.min(page,pages-1);
+    const summary = {
+      individual:db.prepare(`${individuals} SELECT rank,harvestCount FROM ranked WHERE id=?`).get(playerId),
+      class:db.prepare(`${classes} SELECT rank,harvestCount FROM ranked WHERE grade=? AND class_no=?`).get(player.grade,player.class_no),
+    };
+    const items = db.prepare(`${ranked} SELECT ${columns} FROM ranked
+      ORDER BY harvestCount DESC,grade,class_no${scope==='individual'?',number':''} LIMIT 10 OFFSET ?`).all(page*10)
+      .map(row=>({...row,isSelf:row.grade===player.grade && row.classNo===player.class_no &&
+        (scope==='class' || row.number===player.number)}));
+    return {scope,page,pages,total,summary,items};
+  }
   function importQuiz(input) {
     if (!input || !validWeek(input.week) || !Array.isArray(input.questions) || !input.questions.length || input.questions.length>20) fail(400,'월요일 날짜와 1~20개 문제를 입력하세요.');
     for (const q of input.questions) {
@@ -194,6 +226,6 @@ function openStore(directory, {now = Date.now, dailyLimit = false} = {}) {
     if (!input || !validWeek(input.week) || typeof input.title!=='string' || !input.title.trim() || input.title.length>60 || typeof input.description!=='string' || !input.description.trim() || input.description.length>600) fail(400,'특별 미션의 월요일 날짜, 제목과 내용을 확인하세요.');
     db.prepare('INSERT INTO special_missions(week,title,description) VALUES(?,?,?) ON CONFLICT(week) DO UPDATE SET title=excluded.title,description=excluded.description,revision=revision+1').run(input.week,input.title.trim(),input.description.trim());
   }
-  return {db,login,resetPin,deleteStudent,authenticate,snapshot,quiz,checkAnswer,special,action,garden,importQuiz,importSpecial,quizBank};
+  return {db,login,resetPin,deleteStudent,authenticate,snapshot,quiz,checkAnswer,special,action,garden,rankings,importQuiz,importSpecial,quizBank};
 }
 module.exports = {openStore,ApiError,dayAt,weekAt};

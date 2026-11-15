@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'content.dart';
+import 'status_stamp.dart';
 
 class QuizSetPopup extends StatefulWidget {
   const QuizSetPopup({
@@ -67,6 +68,8 @@ class _QuizSetPopupState extends State<QuizSetPopup> {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          const Center(child: QuizStatusStamp(size: 80)),
+          const SizedBox(height: 12),
           Text(
             '10문제 중 ${result!['correctCount']}문제 정답',
             textAlign: TextAlign.center,
@@ -83,28 +86,10 @@ class _QuizSetPopupState extends State<QuizSetPopup> {
             const Text('작물은 최대 100%까지 자라요.', textAlign: TextAlign.center),
           const SizedBox(height: 16),
           for (var i = 0; i < widget.questions.length; i++)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    '${i + 1}. ${widget.questions[i].question}',
-                    style: const TextStyle(fontWeight: FontWeight.w700),
-                  ),
-                  if (review != null) ...[
-                    Text(review[i]['correct'] == true ? '정답' : '오답'),
-                    Text(
-                      '내 답 · ${widget.questions[i].choices[review[i]['selected'] as int]}',
-                    ),
-                  ],
-                  Text(
-                    '정답 · ${widget.questions[i].choices[widget.questions[i].correctIndex!]}',
-                  ),
-                  if (widget.questions[i].explanation.isNotEmpty)
-                    Text(widget.questions[i].explanation),
-                ],
-              ),
+            _AnswerCard(
+              question: widget.questions[i],
+              number: i + 1,
+              answer: review?[i] as Map?,
             ),
           FilledButton(
             onPressed: () => Navigator.pop(context),
@@ -171,6 +156,86 @@ class _QuizSetPopupState extends State<QuizSetPopup> {
         const SizedBox(height: 8),
         const Text('과목별 하루 10문제 · 정답 하나당 성장 +10%', textAlign: TextAlign.center),
       ],
+    );
+  }
+}
+
+class _AnswerCard extends StatelessWidget {
+  const _AnswerCard({
+    required this.question,
+    required this.number,
+    required this.answer,
+  });
+  final QuizQuestion question;
+  final int number;
+  final Map? answer;
+
+  @override
+  Widget build(BuildContext context) {
+    final correct = answer?['correct'] as bool?;
+    final color = correct == null
+        ? const Color(0xff526254)
+        : correct
+        ? const Color(0xff237245)
+        : const Color(0xffb3261e);
+    return Container(
+      key: ValueKey('quiz-answer-$number'),
+      margin: const EdgeInsets.only(bottom: 14),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: .07),
+        border: Border.all(color: color.withValues(alpha: .65), width: 1.5),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                correct == null
+                    ? Icons.menu_book_outlined
+                    : correct
+                    ? Icons.check_circle
+                    : Icons.cancel,
+                color: color,
+                size: 22,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                correct == null
+                    ? '정답 해설'
+                    : correct
+                    ? '정답'
+                    : '오답',
+                style: TextStyle(color: color, fontWeight: FontWeight.w800),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            '$number. ${question.question}',
+            style: const TextStyle(fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 8),
+          if (answer != null)
+            Text(
+              '내 답 · ${question.choices[answer!['selected'] as int]}',
+              style: TextStyle(color: color, fontWeight: FontWeight.w700),
+            ),
+          Text(
+            '정답 · ${question.choices[question.correctIndex!]}',
+            style: const TextStyle(
+              color: Color(0xff237245),
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          if (question.explanation.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Text(question.explanation),
+          ],
+        ],
+      ),
     );
   }
 }

@@ -88,7 +88,7 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
       const state = await run("JSON.parse(localStorage.getItem('growgame.local-test.v1')).records[0]");
       assert.equal(state.progress, 100);
       assert.equal(await run("localStorage.getItem('growgame.figma-game.v1')"), null);
-      await click('수확하기'); await wait(has('우리 반 정원에 벼 수확이 더해졌어요.')); await click('정원 보기');
+      await click('수확하기'); await wait(has('벼 수확이 개인·반 랭킹에 반영됐어요.')); await click('랭킹 보기');
       await wait(has('수확 1개'));
     }
     assert.deepEqual(apiRequests, [], '로컬 모드에서 공식 API 접속 없음');

@@ -242,9 +242,14 @@ void main() {
       await tester.tap(find.text('수확하기'));
       await tester.pumpAndSettle();
       expect(find.text('수확 성공!'), findsOneWidget);
-      await tester.tap(find.text('정원 보기'));
+      await tester.tap(find.text('랭킹 보기'));
       await tester.pumpAndSettle();
-      expect(find.textContaining('수확 1개'), findsOneWidget);
+      expect(find.text('수확 1개'), findsNWidgets(2));
+      expect(find.text('내 개인 순위'), findsOneWidget);
+      expect(find.text('우리 반 순위'), findsOneWidget);
+      await tester.tap(find.text('반 랭킹'));
+      await tester.pumpAndSettle();
+      expect(find.text('우리 반'), findsOneWidget);
       await tester.tap(find.text('도감'));
       await tester.pumpAndSettle();
       expect(find.text('작물 도감  1/${crops.length}'), findsOneWidget);

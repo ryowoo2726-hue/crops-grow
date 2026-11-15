@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:growgame/missions/quiz/content.dart';
 import 'package:growgame/missions/quiz/set_popup.dart';
+import 'package:growgame/missions/quiz/status_stamp.dart';
 
 void main() {
   for (final correctCount in [0, 3, 10]) {
@@ -52,6 +53,13 @@ void main() {
       expect(find.text('정답 · 나'), findsNWidgets(10 - correctCount));
       expect(find.text('내 답 · 가'), findsNWidgets(10));
       expect(find.text('닫고 영양분 받기'), findsOneWidget);
+      expect(find.byType(QuizStatusStamp), findsOneWidget);
+      expect(find.byIcon(Icons.check_circle), findsNWidgets(correctCount));
+      expect(find.byIcon(Icons.cancel), findsNWidgets(10 - correctCount));
+      if (correctCount < 10) {
+        final wrong = tester.widget<Icon>(find.byIcon(Icons.cancel).first);
+        expect(wrong.color, const Color(0xffb3261e));
+      }
     });
   }
 
@@ -84,6 +92,12 @@ void main() {
     expect(find.text('정답 · 나'), findsNWidgets(10));
     expect(find.text('해설'), findsNWidgets(10));
     expect(find.textContaining('내 답 ·'), findsNothing);
+    expect(
+      find.byIcon(Icons.cancel),
+      findsNothing,
+      reason: '다시 연 결과에 없는 선택 답안을 추측해 오답 처리하지 않음',
+    );
+    expect(find.byType(QuizStatusStamp), findsOneWidget);
   });
 
   test('문제와 함께 받은 정답·해설을 읽고 잘못된 정답 번호를 거부한다', () {
