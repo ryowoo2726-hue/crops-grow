@@ -6,10 +6,14 @@ const assert = require('node:assert/strict');
 const {spawn} = require('node:child_process');
 const {createBackend} = require('../backend/server.cjs');
 const {weekAt} = require('../backend/store.cjs');
+const {hashPassword} = require('../backend/admin.cjs');
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 (async () => {
   const dataDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'growgame-browser-db-'));
-  const app = createBackend({directory: dataDirectory});
+  const app = createBackend({directory: dataDirectory,adminCredentials:await hashPassword('6815'),notionClient:{
+    ensurePage:async row=>'11111111-1111-1111-1111-'+row.id.slice(-12),
+    markDelivered:async()=>{},reviewPageUrl:'https://www.notion.so/test-review',
+  }});
   app.store.importRoster([
     {grade:3,classNo:10,number:24,name:'가상학생'},
     {grade:3,classNo:12,number:30,name:'명단학생'},
@@ -99,7 +103,7 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
       await sleep(400);
     };
     const fillInput = async (label, text) => {
-      const selector=`input[aria-label=${JSON.stringify(label)}]`;
+      const selector=`input[aria-label=${JSON.stringify(label)}],textarea[aria-label=${JSON.stringify(label)}]`;
       await wait(`!!document.querySelector(${JSON.stringify(selector)})`);
       const point=await run(`(()=>{const r=document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2};})()`);
       await send('Input.dispatchMouseEvent',{type:'mousePressed',...point,button:'left',clickCount:1});
@@ -107,6 +111,14 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
       await sleep(200);
       await send('Input.insertText',{text});
       await sleep(300);
+    };
+    const clickOption = async text => {
+      const expression=`(()=>{const nodes=[...document.querySelectorAll('flt-semantics')].filter(e=>(e.getAttribute('aria-label')||e.textContent)===${JSON.stringify(text)});const e=nodes.at(-1);if(!e)return null;const r=e.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2};})()`;
+      await wait(expression);
+      const point=await run(expression);
+      await send('Input.dispatchMouseEvent',{type:'mousePressed',...point,button:'left',clickCount:1});
+      await send('Input.dispatchMouseEvent',{type:'mouseReleased',...point,button:'left',clickCount:1});
+      await sleep(400);
     };
     await clickText('선생님');
     await wait("!!document.querySelector('input[aria-label=\"선생님 이름\"]')");
@@ -291,6 +303,34 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     await fillInput('비밀번호 4자리','4321');
     await clickText('시작하기');
     await wait("document.querySelector('flt-semantics-host')?.textContent.includes('50 / 100%')");
+    const gratitude=app.store.specialMissions.activate({kind:'gratitude',requestId:'browser-gratitude-mission'});
+    await clickText('미션');await clickText('특별 미션');
+    await wait("document.querySelector('flt-semantics-host')?.textContent.includes('감사의 말 전하기')");
+    await clickText('학년');await clickOption('3학년');
+    await clickText('반');await clickOption('10반');
+    await clickText('번호');await clickOption('24번');
+    await fillInput('감사의 말','친절하게 도와주어서 정말 고맙고 감사해요.');
+    const gratitudeShot=await send('Page.captureScreenshot');
+    fs.writeFileSync(path.join(os.tmpdir(),'growgame-gratitude-mission.png'),Buffer.from(gratitudeShot.data,'base64'));
+    await clickText('검토받기 +25%');
+    await wait("document.querySelector('flt-semantics-host')?.textContent.includes('75 / 100%')");
+    await sleep(1900);
+    await app.notionSync.flush();
+    const savedMessage=app.store.db.prepare('SELECT id,notion_page_id FROM gratitude_messages WHERE campaign_id=?').get(gratitude.id);
+    assert.ok(savedMessage.notion_page_id,'메시지가 노션 검토함에 저장됨');
+    assert.equal(app.store.specialMissions.inbox(1,0).total,0,'관리자 전송 전에는 학생에게 메시지가 도착하지 않음');
+    const adminResponse=await fetch(`http://127.0.0.1:${apiPort}/api/admin/session`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:'6815'})});
+    const adminToken=(await adminResponse.json()).token;
+    const sentResponse=await fetch(`http://127.0.0.1:${apiPort}/api/admin/send-message`,{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+adminToken},body:JSON.stringify({id:savedMessage.id})});
+    assert.equal(sentResponse.status,200);
+    await clickText('가상교사 선생님');await clickText('참여 정보 바꾸기');
+    await clickText('학생');await fillInput('비밀번호 4자리','1234');await clickText('시작하기');
+    await wait("document.querySelector('flt-semantics-host')?.textContent.includes('3학년 10반 가상학생')");
+    await clickText('메시지');
+    await wait("document.querySelector('flt-semantics-host')?.textContent.includes('친절하게 도와주어서 정말 고맙고 감사해요.')");
+    const inboxShot=await send('Page.captureScreenshot');
+    fs.writeFileSync(path.join(os.tmpdir(),'growgame-gratitude-inbox.png'),Buffer.from(inboxShot.data,'base64'));
+    await clickText('닫기');
     assert.equal(errors.length, 0, JSON.stringify(errors));
     console.log('Flutter Chrome 통과: 명단·12반·학생 이름 → 퀴즈·성장·수확·랭킹·복구 → 교사 이름 참여·재로그인 · 3가지 화면');
   } finally {

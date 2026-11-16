@@ -2,8 +2,9 @@
 const $=id=>document.getElementById(id);
 const crops={'rice':'벼','sweet-potato':'고구마','soybean':'콩','radish':'무','napa-cabbage':'배추','apple':'사과','persimmon':'감','peach':'복숭아','watermelon':'수박','chili-pepper':'고추','mango':'망고'};
 let token='',students=[],selected=null,deleting=null,sessionTimer;
+let messagePage=0,messagePages=1,messageRequest=0,activationRequest=null;
 for(let n=1;n<=12;n++) $('class-no').add(new Option(`${n}반`,String(n)));
-function signedOut(){clearTimeout(sessionTimer);token='';students=[];selected=null;deleting=null;$('students').replaceChildren();$('dashboard').hidden=true;$('logout').hidden=true;$('login').hidden=false;for(const id of ['pin-dialog','delete-dialog'])if($(id).open)$(id).close();}
+function signedOut(){clearTimeout(sessionTimer);token='';students=[];selected=null;deleting=null;$('students').replaceChildren();$('review-messages').replaceChildren();$('dashboard').hidden=true;$('logout').hidden=true;$('login').hidden=false;for(const id of ['pin-dialog','delete-dialog'])if($(id).open)$(id).close();}
 async function api(route,body){
   const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),12000);
   try{
@@ -37,7 +38,7 @@ function render(){
 async function refresh(){
   const session=token;
   $('refresh').disabled=true;
-  try{const data=await api('students');if(token!==session||!token)return;students=data.students;render();$('updated').textContent=new Date().toLocaleTimeString('ko-KR',{timeZone:'Asia/Seoul'})+' 갱신';$('message').textContent='';}
+  try{const [data]=await Promise.all([api('students'),loadSpecial(),loadMessages(0)]);if(token!==session||!token)return;students=data.students;render();$('updated').textContent=new Date().toLocaleTimeString('ko-KR',{timeZone:'Asia/Seoul'})+' 갱신';$('message').textContent='';}
   finally{$('refresh').disabled=false;}
 }
 $('login-form').onsubmit=async event=>{
@@ -46,6 +47,64 @@ $('login-form').onsubmit=async event=>{
   catch(error){$('message').textContent=error.message;}
   finally{button.disabled=false;}
 };
+
+for(const button of document.querySelectorAll('[data-panel]')) {
+  button.onclick=()=>{
+    for(const panel of document.querySelectorAll('.admin-panel')) panel.hidden=panel.id!==button.dataset.panel;
+    for(const tab of document.querySelectorAll('[data-panel]')) tab.setAttribute('aria-pressed',String(tab===button));
+    if(button.dataset.panel==='messages-panel') loadMessages(0).catch(showError);
+    if(button.dataset.panel==='special-panel') loadSpecial().catch(showError);
+  };
+}
+function showError(error){$('message').textContent=error.message;}
+function participantLabel(profile){return profile.role==='teacher'?`${profile.name} 선생님`:`${profile.grade}학년 ${profile.classNo}반 ${profile.number}번 ${profile.name||''}`.trim();}
+async function loadSpecial(){
+  const session=token,data=await api('special');
+  if(!token||token!==session)return;
+  $('active-special').textContent=data.mission?`현재 적용 중 · ${data.mission.title}${data.mission.id?' · 미션 '+data.mission.id:''}`:'현재 적용된 특별미션이 없습니다.';
+  $('notion-status').textContent=!data.notion.configured?'노션 연결 설정이 필요합니다.':data.notion.error?'노션 저장을 재시도하고 있습니다. 연결과 페이지 권한을 확인하세요.':data.notion.pending?`노션 반영 대기 ${data.notion.pending}건`:'노션 저장이 완료되었습니다.';
+  $('notion-review').hidden=!data.notion.reviewPageUrl;
+  if(data.notion.reviewPageUrl)$('notion-review').href=data.notion.reviewPageUrl;
+}
+$('special-kind').onchange=()=>{
+  activationRequest=null;
+  $('custom-special').hidden=$('special-kind').value!=='custom';
+  $('special-help').textContent=$('special-kind').value==='gratitude'?'학생의 학년·반·번호를 골라 10글자 이상의 감사 메시지를 작성합니다. 서로 다른 4명까지 작성하며 한 명당 성장도 25%를 받습니다.':$('special-kind').value==='custom'?'제목과 내용을 입력하면 학생에게 바로 표시됩니다. 완료한 학생에게 성장도 30%를 지급합니다.':'적용하면 학생의 특별미션이 종료됩니다.';
+};
+for(const id of ['special-title','special-description'])$(id).oninput=()=>{activationRequest=null;};
+$('special-form').onsubmit=async event=>{
+  event.preventDefault();const button=event.submitter;button.disabled=true;
+  const body={kind:$('special-kind').value,title:$('special-title').value,description:$('special-description').value};
+  activationRequest??=crypto.randomUUID();
+  try{await api('special',{...body,requestId:activationRequest});activationRequest=null;await loadSpecial();$('message').textContent='선택한 특별미션을 새로 적용했습니다.';}
+  catch(error){showError(error);}
+  finally{button.disabled=false;}
+};
+async function loadMessages(page){
+  const session=token,request=++messageRequest;
+  const data=await api('messages',{status:$('message-status').value,page});
+  if(!token||session!==token||request!==messageRequest)return;
+  messagePage=data.page;messagePages=data.pages;
+  $('review-messages').replaceChildren();$('messages-empty').hidden=data.items.length>0;
+  for(const item of data.items){
+    const card=document.createElement('article');card.className='review-message';
+    const title=document.createElement('h2');title.textContent=participantLabel(item.sender)+' → '+participantLabel(item.recipient);
+    const date=document.createElement('p');date.textContent=new Date(item.createdAt).toLocaleString('ko-KR',{timeZone:'Asia/Seoul'})+' · 미션 '+item.missionId;
+    const body=document.createElement('p');body.className='message-body';body.textContent=item.body;
+    const actions=document.createElement('div');actions.className='message-actions';
+    if(item.notionUrl){const link=document.createElement('a');link.href=item.notionUrl;link.target='_blank';link.rel='noopener noreferrer';link.textContent='노션에서 확인';actions.append(link);}
+    else {const pending=document.createElement('span');pending.textContent='노션 저장 대기';actions.append(pending);}
+    const send=document.createElement('button');send.textContent=item.deliveredAt?'전송 완료':'전송';send.disabled=!!item.deliveredAt||!item.notionUrl;
+    send.onclick=async()=>{send.disabled=true;try{await api('send-message',{id:item.id});await Promise.all([loadMessages(messagePage),loadSpecial()]);$('message').textContent='학생에게 메시지를 전송했습니다.';}catch(error){showError(error);send.disabled=false;}};
+    actions.append(send);card.append(title,date,body,actions);$('review-messages').append(card);
+  }
+  $('message-page').textContent=`${messagePage+1} / ${messagePages}`;
+  $('previous-messages').disabled=messagePage===0;$('next-messages').disabled=messagePage+1===messagePages;
+}
+$('message-status').onchange=()=>loadMessages(0).catch(showError);
+$('refresh-messages').onclick=()=>Promise.all([loadMessages(messagePage),loadSpecial()]).catch(showError);
+$('previous-messages').onclick=()=>loadMessages(messagePage-1).catch(showError);
+$('next-messages').onclick=()=>loadMessages(messagePage+1).catch(showError);
 $('refresh').onclick=()=>refresh().catch(error=>{$('message').textContent=error.message;});
 $('grade').onchange=render;$('class-no').onchange=render;
 $('logout').onclick=async()=>{try{await api('logout',{});}catch(error){$('message').textContent=error.message;}finally{signedOut();$('password').focus();}};

@@ -22,7 +22,7 @@ function openStore(directory, {now = Date.now, dailyLimit = false} = {}) {
   const db = new DatabaseSync(path.join(directory, 'growgame.sqlite'));
   db.exec('PRAGMA busy_timeout=3000');
   const version = db.prepare('PRAGMA user_version').get().user_version;
-  if (version > 3) { db.close(); throw Error('이 서버보다 새로운 DB입니다. 서버를 업데이트하세요.'); }
+  if (version > 4) { db.close(); throw Error('이 서버보다 새로운 DB입니다. 서버를 업데이트하세요.'); }
   const schema = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8');
   const oldColumns = db.prepare('PRAGMA table_info(players)').all().map(column => column.name);
   if (oldColumns.length && !oldColumns.includes('role')) {
@@ -44,6 +44,7 @@ function openStore(directory, {now = Date.now, dailyLimit = false} = {}) {
   }
   db.exec(schema);
   const quizBank = require('./quiz-bank.cjs').createQuizBank(db, {now, dayAt, fail});
+  const specialMissions = require('./special-missions.cjs').createSpecialMissions(db, {now,fail,profileOf:participantProfile});
   db.prepare('DELETE FROM sessions WHERE expires_at < ?').run(now());
   db.prepare('DELETE FROM action_receipts WHERE created_at < ?').run(now() - 7 * 86400000);
   const getPlayer = id => db.prepare('SELECT * FROM players WHERE id=?').get(id);
@@ -79,7 +80,7 @@ function openStore(directory, {now = Date.now, dailyLimit = false} = {}) {
   function snapshot(id) {
     const p = getPlayer(id);
     const counts = db.prepare('SELECT crop_id, COUNT(*) count FROM harvests WHERE player_id=? GROUP BY crop_id').all(id);
-    return {profile:participantProfile(p), cropId:p.crop_id, progress:p.progress,
+    return {profile:participantProfile(p), cropId:p.crop_id, progress:p.progress,pendingGratitudeGrowth:specialMissions.pendingGrowth(id),
       dailyMode:dailyLimit, waterDay:p.water_day, missionDay:p.mission_day, revision:p.revision,
       harvests:[], harvestCount:counts.reduce((n,c)=>n+c.count,0), collectionCounts:Object.fromEntries(counts.map(c=>[c.crop_id,c.count]))};
   }
@@ -184,10 +185,10 @@ function openStore(directory, {now = Date.now, dailyLimit = false} = {}) {
     if (correct) db.prepare('INSERT OR IGNORE INTO quiz_answers VALUES(?,?,?,?)').run(playerId,current.week,current.revision,q.id);
     return {correct,explanation:correct?q.explanation:''};
   }
-  const special = () => db.prepare('SELECT week,title,description,revision FROM special_missions WHERE week=?').get(weekAt(now())) || null;
+  const special = () => specialMissions.current(db.prepare('SELECT week,title,description,revision FROM special_missions WHERE week=?').get(weekAt(now())) || null);
   function action(playerId, input) {
     if (typeof input.requestId !== 'string' || !/^[a-zA-Z0-9_-]{16,100}$/.test(input.requestId)) fail(400,'요청 번호가 올바르지 않아요.');
-    const fingerprint = JSON.stringify([input.kind,input.cropId??null,input.missionRevision??null,...(input.kind==='quiz-set'?[input.runId]:[])]);
+    const fingerprint = JSON.stringify([input.kind,input.cropId??null,input.missionRevision??null,...(input.kind==='quiz-set'?[input.runId]:[]),...(input.missionId==null?[]:[input.missionId])]);
     db.exec('BEGIN IMMEDIATE');
     try {
       const previous = db.prepare('SELECT * FROM action_receipts WHERE player_id=? AND request_id=?').get(playerId,input.requestId);
@@ -204,6 +205,7 @@ function openStore(directory, {now = Date.now, dailyLimit = false} = {}) {
       } else if (input.kind==='plant') {
         if (p.crop_id!==null || !crops.has(input.cropId)) fail(409,'심을 수 있는 작물을 선택해 주세요.');
         db.prepare('UPDATE players SET crop_id=?,progress=0,revision=revision+1 WHERE id=?').run(input.cropId,playerId);
+        specialMissions.claimGrowth(playerId);
       } else if (input.kind==='harvest') {
         if (!p.crop_id || p.progress<100) fail(409,'작물이 다 자라면 수확할 수 있어요.');
         const at = new Date(now()).toISOString();
@@ -224,6 +226,8 @@ function openStore(directory, {now = Date.now, dailyLimit = false} = {}) {
         if (input.kind==='special') {
           const mission = special();
           if (!mission || mission.revision!==input.missionRevision) fail(409,'특별 미션이 변경되었어요. 다시 확인해 주세요.');
+          if (mission.id != null && mission.id !== input.missionId) fail(409,'특별 미션이 변경되었어요. 다시 확인해 주세요.');
+          if (mission.kind==='gratitude') fail(409,'감사의 말을 작성해 미션에 참여해 주세요.');
         }
         db.prepare(`UPDATE players SET progress=MIN(100,progress+?),${field}=?,revision=revision+1 WHERE id=?`).run(input.kind==='water'?50:30,day,playerId);
       }
@@ -293,6 +297,6 @@ function openStore(directory, {now = Date.now, dailyLimit = false} = {}) {
     if (!input || !validWeek(input.week) || typeof input.title!=='string' || !input.title.trim() || input.title.length>60 || typeof input.description!=='string' || !input.description.trim() || input.description.length>600) fail(400,'특별 미션의 월요일 날짜, 제목과 내용을 확인하세요.');
     db.prepare('INSERT INTO special_missions(week,title,description) VALUES(?,?,?) ON CONFLICT(week) DO UPDATE SET title=excluded.title,description=excluded.description,revision=revision+1').run(input.week,input.title.trim(),input.description.trim());
   }
-  return {db,login,resetPin,deleteStudent,authenticate,snapshot,quiz,checkAnswer,special,action,garden,rankings,importQuiz,importSpecial,quizBank,importRoster,loginOptions};
+  return {db,login,resetPin,deleteStudent,authenticate,snapshot,quiz,checkAnswer,special,action,garden,rankings,importQuiz,importSpecial,quizBank,importRoster,loginOptions,specialMissions};
 }
 module.exports = {openStore,ApiError,dayAt,weekAt};

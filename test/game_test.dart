@@ -7,8 +7,81 @@ import 'package:growgame/missions.dart';
 import 'package:growgame/storage_stub.dart' as test_storage;
 import 'package:growgame/missions/quiz/content.dart';
 import 'package:growgame/missions/quiz/popup.dart';
+import 'package:growgame/missions/special/gratitude.dart';
 
 void main() {
+  testWidgets('감사 미션에서 받는 학생을 선택하고 10자 이상 작성한다', (tester) async {
+    Map<String, dynamic>? submitted;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => TextButton(
+              onPressed: () => showDialog<Map<String, dynamic>>(
+                context: context,
+                builder: (_) => Dialog(
+                  child: SingleChildScrollView(
+                    child: Padding(
+                      padding: const EdgeInsets.all(20),
+                      child: GratitudeMissionPopup(
+                        data: {
+                          'mission': {'id': 7},
+                          'classes': [
+                            {
+                              'grade': 1,
+                              'classNo': 12,
+                              'numbers': [1, 2, 3],
+                            },
+                          ],
+                          'submitted': [],
+                          'remaining': 4,
+                        },
+                        profile: const {
+                          'role': 'student',
+                          'grade': 1,
+                          'classNo': 12,
+                          'number': 1,
+                        },
+                        submit: (input) async {
+                          submitted = input;
+                          return {'saved': true};
+                        },
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              child: const Text('특별 미션 열기'),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('특별 미션 열기'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(DropdownButtonFormField<int>).at(1));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('12반').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(DropdownButtonFormField<int>).at(2));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('2번').last);
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), '고마워');
+    await tester.pump();
+    expect(
+      tester.widget<FilledButton>(find.byType(FilledButton)).onPressed,
+      isNull,
+    );
+    await tester.enterText(find.byType(TextField), '매일 친절하게 도와줘서 고마워요.');
+    await tester.pump();
+    await tester.tap(find.text('검토받기 +25%'));
+    await tester.pumpAndSettle();
+    expect(submitted?['recipient'], {'grade': 1, 'classNo': 12, 'number': 2});
+    expect(submitted?['missionId'], 7);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('선생님 이름으로 참여하고 상단 표시와 기록을 복원한다', (tester) async {
     test_storage.memoryStorage.clear();
     tester.view.physicalSize = const Size(320, 568);

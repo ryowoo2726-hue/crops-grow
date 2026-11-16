@@ -9,10 +9,14 @@ const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
   const directory=fs.mkdtempSync(path.join(os.tmpdir(),'growgame-admin-browser-'));
   const profile=path.join(directory,'chrome');
   const password='6815';
-  const app=createBackend({directory,adminCredentials:await hashPassword(password)});
+  const app=createBackend({directory,adminCredentials:await hashPassword(password),notionClient:{
+    ensurePage:async row=>'11111111-1111-1111-1111-'+row.id.slice(-12),
+    markDelivered:async()=>{},reviewPageUrl:'https://www.notion.so/test-review',
+  }});
   let chrome,socket;
   try{
     for(const p of [{grade:1,classNo:1,number:1},{grade:1,classNo:2,number:2},{grade:2,classNo:1,number:3}])await app.store.login(p,'1234');
+    app.store.importRoster([{grade:1,classNo:1,number:1,name:'가상수신자'},{grade:1,classNo:2,number:2,name:'가상발신자'},{grade:2,classNo:1,number:3,name:'가상학생'}]);
     app.store.db.prepare("UPDATE players SET crop_id='apple',progress=50 WHERE grade=1 AND class_no=1").run();
     app.store.db.prepare("INSERT INTO harvests(player_id,crop_id,created_at) SELECT id,'rice','2026-11-12T00:00:00Z' FROM players WHERE grade=1 AND class_no=1").run();
     await new Promise(resolve=>app.server.listen(0,'127.0.0.1',resolve));
@@ -62,6 +66,24 @@ const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
       const shot=await send('Page.captureScreenshot');
       fs.writeFileSync(path.join(os.tmpdir(),`growgame-admin-${width}.png`),Buffer.from(shot.data,'base64'));
       assert.equal(await run("localStorage.length===0&&sessionStorage.length===0"),true);
+      await run("document.querySelector('[data-panel=\"special-panel\"]').click();document.querySelector('#special-form button[type=submit]').click()");
+      await wait("document.getElementById('message').textContent.includes('새로 적용')");
+      const mission=app.store.special();
+      assert.equal(mission.kind,'gratitude');
+      let missionShot=await send('Page.captureScreenshot');
+      fs.writeFileSync(path.join(os.tmpdir(),`growgame-admin-special-${width}.png`),Buffer.from(missionShot.data,'base64'));
+      const sender=await app.store.login({grade:1,classNo:2,number:2},'1234');
+      const saved=app.store.specialMissions.submit(app.store.authenticate(sender.token),{missionId:mission.id,requestId:`admin-browser-${width}-message`,recipient:{grade:1,classNo:1,number:1},message:'항상 친절하게 도와주어서 정말 고마워요.'});
+      await app.notionSync.flush();
+      await run("document.querySelector('[data-panel=\"messages-panel\"]').click()");
+      await wait("document.querySelectorAll('#review-messages article').length===1");
+      assert.equal(await run("document.documentElement.scrollWidth<=innerWidth"),true);
+      missionShot=await send('Page.captureScreenshot');
+      fs.writeFileSync(path.join(os.tmpdir(),`growgame-admin-message-${width}.png`),Buffer.from(missionShot.data,'base64'));
+      await run("document.querySelector('#review-messages button').click()");
+      await wait("document.getElementById('message').textContent.includes('전송했습니다')");
+      assert.ok(app.store.specialMissions.inbox(app.store.authenticate(changed.token),0).items.some(item=>item.id===saved.id));
+      await run("document.querySelector('[data-panel=\"students-panel\"]').click()");
       await run("document.querySelector('.delete-button').click()");
       assert.equal(await run("document.getElementById('delete-dialog').open"),true);
       assert.equal(await run("document.getElementById('delete-student').textContent"),'1학년 1반 1번');
@@ -92,13 +114,13 @@ const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
       assert.equal(await run("document.querySelectorAll('#students tr').length"),0);
     }
     assert.deepEqual(errors,[]);
-    console.log('관리자 브라우저 검증 통과: 모바일 390/320px·PC, 로그인, 학년·반 필터, PIN 변경, 삭제 확인·취소·성공·통계·세션 해제, 로그아웃');
+    console.log('관리자 브라우저 검증 통과: 모바일 390/320px·PC, 학생 관리, 특별미션 적용, 노션 확인 링크·메시지 수동 전송, 로그아웃');
   }finally{
     if(socket)socket.close();
     if(chrome&&chrome.exitCode===null){const exited=new Promise(resolve=>chrome.once('exit',resolve));chrome.kill();await exited;}
     if(app.server.listening)await new Promise(resolve=>app.server.close(resolve));
     app.store.db.close();
     assert.ok(directory.startsWith(path.resolve(os.tmpdir())+path.sep));
-    fs.rmSync(directory,{recursive:true,force:true,maxRetries:10,retryDelay:200});
+    await fs.promises.rm(directory,{recursive:true,force:true,maxRetries:15,retryDelay:200});
   }
 })().catch(error=>{console.error(error);process.exitCode=1;});

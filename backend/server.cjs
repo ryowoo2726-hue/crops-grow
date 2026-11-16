@@ -5,10 +5,12 @@ const fs = require('node:fs');
 const path = require('node:path');
 const {createAdmin,readCredentials} = require('./admin.cjs');
 const {parseRoster} = require('./roster.cjs');
+const {readNotionSettings,createNotionClient,createNotionSync} = require('./notion.cjs');
 
-function createBackend({directory,origins=['http://localhost:4174','http://127.0.0.1:4174'],now=Date.now,dailyLimit=false,adminCredentials=null,quizBankFile=null,rosterFile=null} = {}) {
+function createBackend({directory,origins=['http://localhost:4174','http://127.0.0.1:4174'],now=Date.now,dailyLimit=false,adminCredentials=null,quizBankFile=null,rosterFile=null,notionClient=null} = {}) {
   const store = openStore(directory,{now,dailyLimit});
-  const admin = createAdmin(store,{credentials:adminCredentials,now});
+  const notionSync = createNotionSync(store,notionClient,now);
+  const admin = createAdmin(store,{credentials:adminCredentials,now,notionSync});
   let rosterStamp = '';
   function syncRoster() {
     if (!rosterFile || !fs.existsSync(rosterFile)) return;
@@ -87,6 +89,15 @@ function createBackend({directory,origins=['http://localhost:4174','http://127.0
         reply(200,{ok:true}); return;
       }
       if (req.method==='GET' && url.pathname==='/api/me') { reply(200,{state:store.snapshot(playerId)}); return; }
+      if (req.method==='GET' && url.pathname==='/api/messages') { reply(200,store.specialMissions.inbox(playerId,Number(url.searchParams.get('page')||0))); return; }
+      if (req.method==='GET' && url.pathname==='/api/special-mission') {
+        reply(200,{mission:store.special(),...store.specialMissions.status(playerId),classes:store.loginOptions().classes}); return;
+      }
+      if (req.method==='POST' && url.pathname==='/api/gratitude') {
+        const result=store.specialMissions.submit(playerId,input);
+        void notionSync.flush();
+        reply(200,{...result,state:store.snapshot(playerId)}); return;
+      }
       if (req.method==='GET' && url.pathname==='/api/garden') { reply(200,store.garden(playerId,Number(url.searchParams.get('page')||0))); return; }
       if (req.method==='GET' && url.pathname==='/api/rankings') { reply(200,store.rankings(playerId,url.searchParams.get('scope')||'individual',Number(url.searchParams.get('page')||0))); return; }
       if (req.method==='GET' && url.pathname==='/api/quizzes/current') { reply(200,store.quiz()); return; }
@@ -101,11 +112,19 @@ function createBackend({directory,origins=['http://localhost:4174','http://127.0
   });
   server.requestTimeout=15000; server.headersTimeout=10000;
   server.maxRequestsPerSocket=100;
-  return {server,store};
+  let syncTimer;
+  server.on('listening',()=>{
+    notionSync.start();
+    void notionSync.flush();
+    syncTimer=setInterval(()=>{void notionSync.flush();},30000);
+    syncTimer.unref();
+  });
+  server.on('close',()=>{clearInterval(syncTimer);notionSync.stop();});
+  return {server,store,notionSync};
 }
 if(require.main===module) {
   const directory=dataDirectory();
-  const {server,store}=createBackend({directory,origins:(process.env.FRONTEND_ORIGINS||'https://cropgrow.sangsangbar.com,http://localhost:4174,http://127.0.0.1:4174').split(',').map(x=>x.trim()).filter(Boolean),dailyLimit:process.env.DAILY_LIMIT==='true',adminCredentials:readCredentials(),quizBankFile:path.join(__dirname,'content','quiz-bank.json'),rosterFile:process.env.GROWGAME_ROSTER_FILE || path.join(__dirname,'..','학생 명단.csv')});
+  const {server,store}=createBackend({directory,origins:(process.env.FRONTEND_ORIGINS||'https://cropgrow.sangsangbar.com,http://localhost:4174,http://127.0.0.1:4174').split(',').map(x=>x.trim()).filter(Boolean),dailyLimit:process.env.DAILY_LIMIT==='true',adminCredentials:readCredentials(),quizBankFile:path.join(__dirname,'content','quiz-bank.json'),rosterFile:process.env.GROWGAME_ROSTER_FILE || path.join(__dirname,'..','학생 명단.csv'),notionClient:createNotionClient(readNotionSettings())});
   server.listen(Number(process.env.PORT)||8787,'127.0.0.1',()=>{
     const base=`http://127.0.0.1:${server.address().port}`;
     console.log(`GrowGame API: ${base}\n관리자: ${base}/admin/\nDB 폴더: ${directory}`);

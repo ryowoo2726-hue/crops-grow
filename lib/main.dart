@@ -15,6 +15,7 @@ import 'missions/quiz/content.dart';
 import 'missions/quiz/popup.dart';
 import 'missions/quiz/set_popup.dart';
 import 'missions/special/popup.dart';
+import 'missions/special/gratitude.dart';
 import 'rankings/board.dart';
 import 'missions/quiz/status_stamp.dart';
 import 'storage_stub.dart' if (dart.library.js_interop) 'storage.dart';
@@ -346,10 +347,11 @@ class _FarmGameState extends State<FarmGame>
     String kind, {
     String? crop,
     int? missionRevision,
+    int? missionId,
     int? quizRunId,
   }) async {
     final session = backend.token;
-    final key = '$kind-$crop-$missionRevision-$quizRunId';
+    final key = '$kind-$crop-$missionRevision-$quizRunId-$missionId';
     final requestId = pendingRequests.putIfAbsent(
       key,
       () =>
@@ -361,6 +363,7 @@ class _FarmGameState extends State<FarmGame>
         'requestId': requestId,
         if (crop != null) 'cropId': crop,
         if (missionRevision != null) 'missionRevision': missionRevision,
+        if (missionId != null) 'missionId': missionId,
         if (quizRunId != null) 'runId': quizRunId,
       });
       pendingRequests.remove(key);
@@ -803,6 +806,7 @@ class _FarmGameState extends State<FarmGame>
     String kind, {
     String? missionType,
     int? missionRevision,
+    int? missionId,
     int? quizRunId,
   }) async {
     if (busy || !cropReady || (quizRunId == null && !canGrow(r, kind))) return;
@@ -820,6 +824,7 @@ class _FarmGameState extends State<FarmGame>
                 ? missionType!
                 : kind,
             missionRevision: missionRevision,
+            missionId: missionId,
             quizRunId: quizRunId,
           )
         : null;
@@ -1040,13 +1045,7 @@ class _FarmGameState extends State<FarmGame>
     setState(() => busy = true);
     Map<String, dynamic> data;
     try {
-      final fresh =
-          missionsLoadedAt != null &&
-          DateTime.now().difference(missionsLoadedAt!) <
-              const Duration(seconds: 60);
-      data = fresh && missionData.containsKey(type)
-          ? missionData[type]!
-          : await backend.call('GET', '/api/missions/current');
+      data = await backend.call('GET', '/api/special-mission');
       if (!mounted || record == null) return;
       setState(() => disconnected = false);
     } catch (error) {
@@ -1054,6 +1053,10 @@ class _FarmGameState extends State<FarmGame>
       return;
     } finally {
       if (mounted) setState(() => busy = false);
+    }
+    if ((data['mission'] as Map?)?['kind'] == 'gratitude') {
+      await gratitudeMission(data);
+      return;
     }
     final eligible = cropReady && canGrow(r, 'mission');
     final mission = data['mission'] is Map
@@ -1069,7 +1072,100 @@ class _FarmGameState extends State<FarmGame>
       (_, _) => SpecialMissionPopup(mission: mission, canComplete: eligible),
     );
     if (complete == true && mounted && record != null)
-      await grow('mission', missionType: type, missionRevision: revision);
+      await grow(
+        'mission',
+        missionType: type,
+        missionRevision: revision,
+        missionId: (data['mission'] as Map?)?['id'] as int?,
+      );
+  }
+
+  Future<void> gratitudeMission(Map<String, dynamic> data) async {
+    final session = backend.token;
+    final before = (r['progress'] as num).toDouble();
+    final result = await popup<Map<String, dynamic>>(
+      '특별 미션',
+      (_, _) => GratitudeMissionPopup(
+        data: data,
+        profile: r['profile'],
+        submit: (input) async {
+          final key = 'gratitude-${jsonEncode(input)}';
+          final requestId = pendingRequests.putIfAbsent(
+            key,
+            () =>
+                '${DateTime.now().microsecondsSinceEpoch}_${math.Random.secure().nextInt(0x100000000)}',
+          );
+          final response = await backend.call('POST', '/api/gratitude', {
+            ...input,
+            'requestId': requestId,
+          });
+          pendingRequests.remove(key);
+          if (backend.token != session)
+            throw const ApiException('다시 입장해 주세요.', 401);
+          return response;
+        },
+      ),
+    );
+    if (result == null ||
+        !mounted ||
+        record == null ||
+        backend.token != session)
+      return;
+    setState(() => busy = true);
+    try {
+      applyRemoteState(result['state']);
+      if ((r['progress'] as num) > before &&
+          !MediaQuery.disableAnimationsOf(context)) {
+        await prepareReward('mission', before);
+        if (mounted && rewardGeometry != null)
+          await rewardController.forward().orCancel;
+      }
+    } on TickerCanceled {
+      // 서버에 저장한 보상은 화면 효과와 별도로 확정됩니다.
+    } finally {
+      if (mounted) {
+        rewardController.stop(canceled: false);
+        setState(() {
+          rewardKind = null;
+          rewardGeometry = null;
+          busy = false;
+        });
+      }
+    }
+    if (mounted)
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('감사의 말을 저장했어요. 선생님이 확인한 뒤 전달해요.')),
+      );
+  }
+
+  Future<void> showMessages() async {
+    if (!remote) {
+      await popup<void>(
+        '메시지',
+        (_, _) => const Padding(
+          padding: EdgeInsets.symmetric(vertical: 24),
+          child: Text('아직 도착한 메시지가 없어요.', textAlign: TextAlign.center),
+        ),
+      );
+      return;
+    }
+    final session = backend.token;
+    setState(() => busy = true);
+    try {
+      final data = await backend.call('GET', '/api/messages?page=0');
+      if (!mounted || record == null || backend.token != session) return;
+      await popup<void>(
+        '메시지',
+        (_, _) => MessagesPopup(
+          initialData: data,
+          load: (page) => backend.call('GET', '/api/messages?page=$page'),
+        ),
+      );
+    } catch (error) {
+      remoteError(error);
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
   }
 
   Future<void> manageMissions() async {
@@ -1690,20 +1786,7 @@ class _FarmGameState extends State<FarmGame>
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 quietButton('미션', Icons.task_alt, mission),
-                quietButton(
-                  '메시지',
-                  Icons.chat_bubble_outline,
-                  () => popup<void>(
-                    '메시지',
-                    (_, _) => const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 24),
-                      child: Text(
-                        '아직 도착한 메시지가 없어요.',
-                        textAlign: TextAlign.center,
-                      ),
-                    ),
-                  ),
-                ),
+                quietButton('메시지', Icons.chat_bubble_outline, showMessages),
               ],
             ),
             Expanded(

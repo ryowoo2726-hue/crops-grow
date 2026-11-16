@@ -68,4 +68,28 @@ CREATE TABLE IF NOT EXISTS quiz_runs (
   UNIQUE(player_id, subject, day)
 ) STRICT;
 CREATE INDEX IF NOT EXISTS quiz_runs_history ON quiz_runs(player_id, set_id);
-PRAGMA user_version = 3;
+CREATE TABLE IF NOT EXISTS special_campaigns (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  request_id TEXT NOT NULL UNIQUE,
+  kind TEXT NOT NULL CHECK(kind IN ('gratitude','custom','off')),
+  title TEXT NOT NULL, description TEXT NOT NULL, created_at TEXT NOT NULL
+) STRICT;
+CREATE TABLE IF NOT EXISTS gratitude_messages (
+  id TEXT PRIMARY KEY,
+  campaign_id INTEGER NOT NULL REFERENCES special_campaigns(id),
+  player_id INTEGER NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+  request_id TEXT NOT NULL,
+  sender_json TEXT NOT NULL,
+  recipient_grade INTEGER NOT NULL, recipient_class INTEGER NOT NULL,
+  recipient_number INTEGER NOT NULL, recipient_name TEXT NOT NULL,
+  body TEXT NOT NULL, char_count INTEGER NOT NULL,
+  created_at TEXT NOT NULL, delivered_at TEXT NOT NULL DEFAULT '',
+  reward_remaining INTEGER NOT NULL DEFAULT 25 CHECK(reward_remaining BETWEEN 0 AND 25),
+  notion_page_id TEXT NOT NULL DEFAULT '', notion_delivered INTEGER NOT NULL DEFAULT 0,
+  sync_after INTEGER NOT NULL DEFAULT 0,
+  UNIQUE(player_id,request_id),
+  UNIQUE(campaign_id,player_id,recipient_grade,recipient_class,recipient_number)
+) STRICT;
+CREATE INDEX IF NOT EXISTS gratitude_inbox ON gratitude_messages(recipient_grade,recipient_class,recipient_number,delivered_at);
+CREATE INDEX IF NOT EXISTS gratitude_sender ON gratitude_messages(player_id,campaign_id);
+PRAGMA user_version = 4;

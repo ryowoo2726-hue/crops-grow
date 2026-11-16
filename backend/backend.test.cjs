@@ -7,6 +7,109 @@ const {backup}=require('node:sqlite');
 const {createBackend}=require('./server.cjs');
 const {hashPassword}=require('./admin.cjs');
 const {parseRoster}=require('./roster.cjs');
+const {createNotionClient}=require('./notion.cjs');
+
+test('관리자 미션 교체·감사 메시지 4명·25% 보상·노션 저장 후 수동 전송',async t=>{
+  const directory=fs.mkdtempSync(path.join(os.tmpdir(),'growgame-gratitude-'));
+  let clock=Date.now(),notionFails=true;
+  const exported=new Set(),delivered=[];
+  const notionClient={reviewPageUrl:'https://www.notion.so/test-review',
+    ensurePage:async row=>{if(notionFails)throw Error('temporary failure');exported.add(row.id);return '11111111-1111-1111-1111-'+row.id.slice(-12);},
+    markDelivered:async row=>{delivered.push(row.id);},
+  };
+  const app=createBackend({directory,now:()=>clock,notionClient,adminCredentials:await hashPassword('1234')});
+  await new Promise(resolve=>app.server.listen(0,'127.0.0.1',resolve));
+  t.after(async()=>{await app.notionSync.flush();await new Promise(resolve=>app.server.close(resolve));app.store.db.close();assert.ok(directory.startsWith(path.resolve(os.tmpdir())+path.sep));fs.rmSync(directory,{recursive:true,force:true});});
+  app.store.importRoster(Array.from({length:7},(_,i)=>({grade:1,classNo:12,number:i+1,name:`가상학생${i+1}`})));
+  const sender=await app.store.login({grade:1,classNo:12,number:1},'1234');
+  const receiver=await app.store.login({grade:1,classNo:12,number:2},'1234');
+  const outsider=await app.store.login({grade:1,classNo:12,number:7},'1234');
+  const playerId=app.store.authenticate(sender.token);
+  const base=`http://127.0.0.1:${app.server.address().port}`;
+  async function request(route,body,token=sender.token){
+    const response=await fetch(base+route,{method:body?'POST':'GET',headers:{...(body?{'Content-Type':'application/json'}:{}),...(token?{Authorization:`Bearer ${token}`}:{})},body:body?JSON.stringify(body):undefined});
+    return {status:response.status,data:await response.json()};
+  }
+  const admin=(await request('/api/admin/session',{password:'1234'},'')).data.token;
+  assert.equal((await request('/api/admin/special',{kind:'gratitude',requestId:'mission-select-0001'})).status,401);
+  const mission=(await request('/api/admin/special',{kind:'gratitude',requestId:'mission-select-0001'},admin)).data.mission;
+  assert.equal(mission.kind,'gratitude');
+  assert.equal((await request('/api/admin/special',{kind:'gratitude',requestId:'mission-select-0001'},admin)).data.mission.id,mission.id);
+  assert.equal((await request('/api/admin/special',{kind:'custom',title:2,requestId:'mission-select-0001'},admin)).status,400);
+  assert.equal((await request('/api/actions',{kind:'special',missionRevision:mission.id,requestId:'skip-writing-0001'})).status,409);
+  const input={missionId:mission.id,requestId:'gratitude-submit-0001',recipient:{grade:1,classNo:12,number:2},message:'항상 친절하게 도와줘서 정말 고마워요.'};
+  assert.equal((await request('/api/gratitude',{...input,message:'짧은 글'})).status,400);
+  assert.equal((await request('/api/gratitude',{...input,recipient:{grade:1,classNo:12,number:1}})).status,400);
+  assert.equal((await request('/api/gratitude',{...input,recipient:{grade:1,classNo:12,number:30}})).status,400);
+  const first=(await request('/api/gratitude',input)).data;
+  assert.equal(first.state.progress,25);assert.equal(first.remaining,3);
+  assert.equal((await request('/api/gratitude',input)).data.state.progress,25);
+  assert.equal((await request('/api/gratitude',{...input,message:'다른 내용으로 바꿔서 제출합니다.'})).status,409);
+  assert.equal((await request('/api/gratitude',{...input,requestId:'gratitude-duplicate-01'})).status,409);
+  await app.notionSync.flush();
+  assert.equal((await request('/api/messages',null,receiver.token)).data.total,0);
+  assert.equal((await request('/api/admin/send-message',{id:first.id},admin)).status,409);
+  notionFails=false;clock+=60001;await app.notionSync.flush();
+  assert.ok(exported.has(first.id));
+  const review=(await request('/api/admin/messages',{status:'pending',page:0},admin)).data;
+  assert.equal(review.total,1);assert.ok(review.items[0].notionUrl);assert.equal(review.items[0].body,input.message);
+  assert.equal((await request('/api/admin/send-message',{id:first.id},receiver.token)).status,401);
+  assert.equal((await request('/api/admin/send-message',{id:first.id},admin)).status,200);
+  assert.equal((await request('/api/admin/send-message',{id:first.id},admin)).status,200);
+  await app.notionSync.flush();
+  assert.deepEqual(delivered,[first.id]);
+  const inbox=(await request('/api/messages',null,receiver.token)).data;
+  assert.equal(inbox.total,1);assert.equal(inbox.items[0].body,input.message);
+  assert.equal((await request('/api/messages',null,outsider.token)).data.total,0);
+  assert.equal((await request('/api/messages?page=-1',null,receiver.token)).status,400);
+  for(let number=3;number<=5;number++){
+    const result=await request('/api/gratitude',{...input,requestId:`gratitude-submit-000${number}`,recipient:{grade:1,classNo:12,number}});
+    assert.equal(result.status,200);
+  }
+  assert.equal(app.store.snapshot(playerId).progress,100);
+  assert.equal((await request('/api/gratitude',{...input,requestId:'gratitude-submit-0006',recipient:{grade:1,classNo:12,number:6}})).status,409);
+  const next=(await request('/api/admin/special',{kind:'gratitude',requestId:'mission-select-0002'},admin)).data.mission;
+  assert.notEqual(next.id,mission.id);
+  assert.equal((await request('/api/special-mission')).data.remaining,4);
+  assert.equal((await request('/api/gratitude',{...input,requestId:'gratitude-stale-0001'})).status,409);
+  await request('/api/gratitude',{...input,missionId:next.id,requestId:'gratitude-submit-next1'});
+  assert.equal(app.store.snapshot(playerId).pendingGratitudeGrowth,25);
+  app.store.action(playerId,{kind:'harvest',requestId:'gratitude-harvest-01'});
+  const planted=app.store.action(playerId,{kind:'plant',cropId:'apple',requestId:'gratitude-plant-001'}).state;
+  assert.equal(planted.progress,25);assert.equal(planted.pendingGratitudeGrowth,0);
+  assert.equal((await request('/api/admin/special',{kind:'off',requestId:'mission-select-0003'},admin)).data.mission,null);
+  assert.equal((await request('/api/special-mission')).data.mission,null);
+  const custom=(await request('/api/admin/special',{kind:'custom',title:'새 특별미션',description:'오늘 실천할 미션입니다.',requestId:'mission-select-0004'},admin)).data.mission;
+  assert.equal((await request('/api/missions/current')).data.mission.title,'새 특별미션');
+  assert.equal((await request('/api/actions',{kind:'special',missionRevision:custom.id,requestId:'custom-stale-00001'})).status,409);
+  assert.equal((await request('/api/actions',{kind:'special',missionId:custom.id,missionRevision:custom.revision,requestId:'custom-growth-0001'})).data.state.progress,55);
+  await app.notionSync.flush();
+  app.store.deleteStudent({grade:1,classNo:12,number:1});
+  assert.equal(app.store.db.prepare('SELECT COUNT(*) n FROM gratitude_messages').get().n,0);
+  assert.deepEqual(app.store.db.prepare('PRAGMA foreign_key_check').all(),[]);
+});
+
+test('노션 기록 ID 조회로 저장 재시도 중복을 방지하고 전송 상태를 반영한다',async()=>{
+  const requests=[];
+  const row={id:'message-test-id',sender_json:JSON.stringify({grade:1,classNo:1,number:1,name:'가상학생'}),
+    recipient_grade:1,recipient_class:1,recipient_number:2,recipient_name:'다른학생',body:'도와줘서 항상 고맙고 정말 감사해요.',
+    char_count:22,campaign_id:1,created_at:new Date().toISOString()};
+  let existing=false;
+  const client=createNotionClient({token:'test-only-secret',dataSourceId:'test-source'},async(url,options)=>{
+    const body=options.body?JSON.parse(options.body):null;requests.push({url,method:options.method,body});
+    if(url.endsWith('/query'))return {ok:true,json:async()=>({results:existing?[{id:'test-page'}]:[]})};
+    if(options.method==='POST'){existing=true;return {ok:true,json:async()=>({id:'test-page'})};}
+    return {ok:true,json:async()=>({})};
+  });
+  assert.equal(await client.ensurePage(row),'test-page');
+  assert.equal(await client.ensurePage(row),'test-page');
+  assert.equal(requests.filter(request=>request.url.endsWith('/pages')).length,1);
+  const create=requests.find(request=>request.url.endsWith('/pages')).body;
+  assert.equal(create.properties['기록 ID'].rich_text[0].text.content,row.id);
+  assert.equal(create.properties['감사의 말'].rich_text[0].text.content,row.body);
+  await client.markDelivered({...row,notion_page_id:'test-page',delivered_at:row.created_at});
+  assert.equal(requests.at(-1).body.properties['검토 상태'].select.name,'전송 완료');
+});
 
 test('명단 CSV·12반·학생 이름 및 교사 참여, 재로그인과 기록 보존',async t=>{
   const directory=fs.mkdtempSync(path.join(os.tmpdir(),'growgame-roster-'));
@@ -74,7 +177,7 @@ test('명단 CSV·12반·학생 이름 및 교사 참여, 재로그인과 기록
   assert.deepEqual(app.store.db.prepare('PRAGMA foreign_key_check').all(),[]);
 });
 
-test('이전 v2 DB의 학생·PIN·세션·수확을 v3로 이관한다',async t=>{
+test('이전 v2 DB의 학생·PIN·세션·수확을 최신 스키마로 이관한다',async t=>{
   const directory=fs.mkdtempSync(path.join(os.tmpdir(),'growgame-migrate-v3-'));
   const {DatabaseSync}=require('node:sqlite');
   const legacy=new DatabaseSync(path.join(directory,'growgame.sqlite'));
@@ -102,7 +205,7 @@ test('이전 v2 DB의 학생·PIN·세션·수확을 v3로 이관한다',async t
   assert.equal(state.profile.name,'이관학생');assert.equal(state.progress,50);assert.equal(state.harvestCount,1);
   assert.equal((await app.store.login({grade:1,classNo:12,number:1},'1234')).state.profile.classNo,12);
   assert.equal((await app.store.login({role:'teacher',name:'이관교사'},'4321')).state.profile.role,'teacher');
-  assert.equal(app.store.db.prepare('PRAGMA user_version').get().user_version,3);
+  assert.equal(app.store.db.prepare('PRAGMA user_version').get().user_version,4);
   assert.deepEqual(app.store.db.prepare('PRAGMA foreign_key_check').all(),[]);
 });
 
@@ -274,7 +377,7 @@ test('과목당 하루 한 세트, 기기 채점 요약과 완료 이력·보상
   await new Promise(resolve=>app.server.close(resolve));
   app.store.db.exec('DROP TABLE quiz_runs; DROP TABLE quiz_sets; PRAGMA user_version=1;');app.store.db.close();
   app=createBackend({directory,now:()=>clock});
-  assert.equal(app.store.db.prepare('PRAGMA user_version').get().user_version,3);
+  assert.equal(app.store.db.prepare('PRAGMA user_version').get().user_version,4);
   assert.equal(app.store.snapshot(second).harvestCount,1);
 });
 
