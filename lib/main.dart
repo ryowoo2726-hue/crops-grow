@@ -10,6 +10,8 @@ import 'game.dart';
 import 'font_assets.dart';
 import 'image_assets.dart';
 import 'local_test_data.dart';
+import 'message_button.dart';
+import 'word_text.dart';
 import 'missions.dart';
 import 'missions/quiz/content.dart';
 import 'missions/quiz/popup.dart';
@@ -77,11 +79,19 @@ class GrowGame extends StatelessWidget {
     debugShowCheckedModeBanner: false,
     theme: gameTheme(),
     home: Scaffold(
+      resizeToAvoidBottomInset: false,
       backgroundColor: const Color(0xff263c30),
       body: SafeArea(
+        maintainBottomViewPadding: true,
         child: LayoutBuilder(
           builder: (context, box) {
             final size = stageSize(box.biggest);
+            final scale = math.min(
+              box.maxWidth / size.width,
+              box.maxHeight / size.height,
+            );
+            final keyboardInset =
+                MediaQuery.viewInsetsOf(context).bottom / scale;
             return SizedBox.expand(
               child: FittedBox(
                 fit: BoxFit.contain,
@@ -97,7 +107,7 @@ class GrowGame extends StatelessWidget {
                         size: size,
                         padding: EdgeInsets.zero,
                         viewPadding: EdgeInsets.zero,
-                        viewInsets: EdgeInsets.zero,
+                        viewInsets: EdgeInsets.only(bottom: keyboardInset),
                       ),
                       child: child!,
                     ),
@@ -135,9 +145,11 @@ class _FarmGameState extends State<FarmGame>
   final gaugeKey = GlobalKey(), mascotKey = GlobalKey();
   String? rewardKind;
   double rewardFrom = 0;
+  double? pendingMissionProgress;
   ({Offset home, Offset root, Rect gauge})? rewardGeometry;
   double get displayedProgress {
     final progress = (r['progress'] as num).toDouble();
+    if (pendingMissionProgress != null) return pendingMissionProgress!;
     return rewardKind == null
         ? progress
         : rewardFrom +
@@ -283,6 +295,10 @@ class _FarmGameState extends State<FarmGame>
       disconnected = apiError.status == 0 || apiError.status >= 500;
       loginError = apiError.message;
       if (apiError.status == 401 && record != null) {
+        pendingMissionProgress = null;
+        rewardKind = null;
+        rewardGeometry = null;
+        busy = false;
         record = null;
         backend.token = '';
       }
@@ -561,7 +577,7 @@ class _FarmGameState extends State<FarmGame>
     errorBuilder: (_, _, _) =>
         const Center(child: Icon(Icons.broken_image_outlined, color: ink)),
   );
-  Widget heading(String text, {double size = 22}) => Text(
+  Widget heading(String text, {double size = 22}) => WordText(
     text,
     textAlign: TextAlign.center,
     style: TextStyle(fontSize: size, fontWeight: FontWeight.w900),
@@ -614,7 +630,12 @@ class _FarmGameState extends State<FarmGame>
         insetPadding: const EdgeInsets.all(22),
         child: ConstrainedBox(
           constraints: BoxConstraints(
-            maxHeight: MediaQuery.sizeOf(context).height - 60,
+            maxHeight: math.max(
+              120.0,
+              MediaQuery.sizeOf(context).height -
+                  MediaQuery.viewInsetsOf(context).bottom -
+                  60,
+            ),
           ),
           child: Padding(
             padding: const EdgeInsets.fromLTRB(20, 10, 20, 22),
@@ -779,6 +800,7 @@ class _FarmGameState extends State<FarmGame>
     setState(() {
       rewardKind = kind;
       rewardFrom = before;
+      pendingMissionProgress = null;
     });
     await WidgetsBinding.instance.endOfFrame;
     if (!mounted || record == null) return false;
@@ -1107,26 +1129,99 @@ class _FarmGameState extends State<FarmGame>
       if (mounted) setState(() => busy = false);
     }
     if (!mounted || record == null || backend.token != session) return;
+    var closed = false;
+    var requestPending = false;
+    var ownsBusy = false;
+    double? rewardBefore;
     await popup<void>(
       '${mission['title']} 퀴즈',
       (_, _) => QuizSetPopup(
         questions: parseQuizQuestions(quiz['questions']),
         result: quiz['result'] as Map<String, dynamic>?,
+        claimed: quiz['result'] != null,
         submitAnswers: (answers) async {
-          final response = await backend.call(
-            'POST',
-            '/api/special-quiz/submit',
-            {'missionId': mission['id'], 'answers': answers},
-          );
           if (!mounted || record == null || backend.token != session) {
             throw const ApiException('다시 입장해 주세요.', 401);
           }
-          // 제출 중 창을 닫아도 서버에서 확정한 보상을 현재 화면에 반영합니다.
-          applyRemoteState(response['state']);
-          return response['result'] as Map<String, dynamic>;
+          requestPending = true;
+          ownsBusy = true;
+          setState(() => busy = true);
+          final before = (r['progress'] as num).toDouble();
+          try {
+            final response = await backend.call(
+              'POST',
+              '/api/special-quiz/submit',
+              {'missionId': mission['id'], 'answers': answers},
+            );
+            if (!mounted || record == null || backend.token != session) {
+              throw const ApiException('다시 입장해 주세요.', 401);
+            }
+            applyRemoteState(response['state']);
+            if ((r['progress'] as num) > before) {
+              rewardBefore = before;
+              setState(() => pendingMissionProgress = before);
+              // 제출 중 창을 닫아도 서버의 보상은 보존하고 효과를 이어갑니다.
+            }
+            if (closed) {
+              if (rewardBefore != null) {
+                await playMissionReward(rewardBefore!);
+              } else {
+                setState(() => busy = false);
+              }
+            }
+            return response['result'] as Map<String, dynamic>;
+          } catch (_) {
+            if (mounted && backend.token == session) {
+              setState(() {
+                pendingMissionProgress = null;
+                busy = false;
+              });
+            }
+            rethrow;
+          } finally {
+            requestPending = false;
+          }
         },
       ),
     );
+    closed = true;
+    if (mounted &&
+        record != null &&
+        backend.token == session &&
+        !requestPending &&
+        rewardBefore != null) {
+      await playMissionReward(rewardBefore!);
+    } else if (mounted &&
+        backend.token == session &&
+        ownsBusy &&
+        !requestPending) {
+      setState(() => busy = false);
+    }
+  }
+
+  Future<void> playMissionReward(double before) async {
+    if (!mounted || record == null) return;
+    setState(() => busy = true);
+    try {
+      if ((r['progress'] as num) > before &&
+          !MediaQuery.disableAnimationsOf(context)) {
+        if (await prepareReward('mission', before) && mounted) {
+          await rewardController.forward().orCancel;
+        }
+      }
+    } on TickerCanceled {
+      // 서버에 저장한 보상은 화면 효과와 별도로 확정됩니다.
+    } finally {
+      if (mounted) {
+        rewardController.stop(canceled: false);
+        setState(() {
+          pendingMissionProgress = null;
+          rewardKind = null;
+          rewardGeometry = null;
+          busy = false;
+        });
+      }
+    }
   }
 
   Future<void> gratitudeMission(Map<String, dynamic> data) async {
@@ -1203,11 +1298,21 @@ class _FarmGameState extends State<FarmGame>
     try {
       final data = await backend.call('GET', '/api/messages?page=0');
       if (!mounted || record == null || backend.token != session) return;
+      setState(() => r['unreadMessageCount'] = data['unreadCount'] ?? 0);
       await popup<void>(
         '메시지',
         (_, _) => MessagesPopup(
           initialData: data,
           load: (page) => backend.call('GET', '/api/messages?page=$page'),
+          markRead: (ids) async {
+            final result = await backend.call('POST', '/api/messages/read', {
+              'ids': ids,
+            });
+            if (!mounted || record == null || backend.token != session) {
+              throw const ApiException('다시 입장해 주세요.', 401);
+            }
+            setState(() => r['unreadMessageCount'] = result['unreadCount']);
+          },
         ),
       );
     } catch (error) {
@@ -1835,7 +1940,12 @@ class _FarmGameState extends State<FarmGame>
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 quietButton('미션', Icons.task_alt, mission),
-                quietButton('메시지', Icons.chat_bubble_outline, showMessages),
+                MessageButton(
+                  unreadCount: remote
+                      ? (r['unreadMessageCount'] as int? ?? 0)
+                      : 0,
+                  onPressed: busy ? null : showMessages,
+                ),
               ],
             ),
             Expanded(
@@ -2079,6 +2189,7 @@ class _FarmGameState extends State<FarmGame>
 
   @override
   Widget build(BuildContext context) => Scaffold(
+    resizeToAvoidBottomInset: false,
     body: Stack(
       fit: StackFit.expand,
       children: [

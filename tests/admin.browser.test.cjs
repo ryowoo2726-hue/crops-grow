@@ -83,6 +83,26 @@ const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
       await run("document.querySelector('#review-messages button').click()");
       await wait("document.getElementById('message').textContent.includes('전송했습니다')");
       assert.ok(app.store.specialMissions.inbox(app.store.authenticate(changed.token),0).items.some(item=>item.id===saved.id));
+      const teacherName=`미등록교사${width}`;
+      const teacherMessage=app.store.specialMissions.submit(app.store.authenticate(sender.token),{missionId:mission.id,requestId:`admin-browser-${width}-teacher`,recipient:{role:'teacher',name:teacherName},message:'언제나 따뜻하게 가르쳐 주셔서 선생님 감사합니다.'});
+      await run("document.getElementById('refresh-messages').click()");
+      await wait("document.querySelector('#review-messages .registration-status')?.textContent==='등록 안됨'");
+      assert.equal(await run("document.querySelector('#review-messages h2').textContent.includes('선생님')"),true);
+      assert.equal(await run("document.querySelector('#review-messages button').disabled"),true);
+      assert.equal(await run("getComputedStyle(document.querySelector('#review-messages button')).cursor"),'not-allowed');
+      assert.equal(await run("document.querySelector('#review-messages button').title.includes('같은 이름')"),true);
+      assert.equal(await run("document.documentElement.scrollWidth<=innerWidth"),true);
+      missionShot=await send('Page.captureScreenshot');
+      fs.writeFileSync(path.join(os.tmpdir(),`growgame-admin-unregistered-teacher-${width}.png`),Buffer.from(missionShot.data,'base64'));
+      const teacher=await app.store.login({role:'teacher',name:teacherName},'4321');
+      await run("document.getElementById('refresh-messages').click()");
+      await wait("document.querySelector('#review-messages button')?.disabled===false");
+      assert.equal(await run("!!document.querySelector('#review-messages .registration-status')"),false);
+      await run("document.querySelector('#review-messages button').click()");
+      await wait("document.querySelectorAll('#review-messages article').length===0");
+      const teacherInbox=app.store.specialMissions.inbox(app.store.authenticate(teacher.token),0);
+      assert.ok(teacherInbox.items.some(item=>item.id===teacherMessage.id));
+      assert.equal(teacherInbox.unreadCount,1);
       await run("document.querySelector('[data-panel=\"special-panel\"]').click()");
       for(const kind of ['patriots','farmers']){
         await run(`document.getElementById('special-kind').value='${kind}';document.getElementById('special-kind').dispatchEvent(new Event('change'));document.querySelector('#special-form button[type=submit]').click()`);
@@ -110,7 +130,7 @@ const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
       assert.equal(await run("document.getElementById('harvest-count').textContent"),'0개');
       assert.equal(await run("document.getElementById('empty').hidden"),false);
       assert.throws(()=>app.store.authenticate(changed.token),error=>error.status===401);
-      assert.equal(app.store.db.prepare('SELECT COUNT(*) n FROM players').get().n,2);
+      assert.equal(app.store.db.prepare("SELECT COUNT(*) n FROM players WHERE role='student'").get().n,2);
       // Restore only fake test data for the next viewport.
       const restored=await app.store.login({grade:1,classNo:1,number:1},'1234');
       const restoredId=app.store.authenticate(restored.token);
@@ -121,7 +141,7 @@ const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
       assert.equal(await run("document.querySelectorAll('#students tr').length"),0);
     }
     assert.deepEqual(errors,[]);
-    console.log('관리자 브라우저 검증 통과: 모바일 390/320px·PC, 학생 관리, 특별미션 3종 적용, DB 검토·메시지 수동 전송, 로그아웃');
+    console.log('관리자 브라우저 검증 통과: 모바일 390/320px·PC, 학생 관리, 특별미션 3종 적용, 학생/교사 메시지 수동 전송, 미등록 교사 상태·참여 후 전송, 로그아웃');
   }finally{
     if(socket)socket.close();
     if(chrome&&chrome.exitCode===null){const exited=new Promise(resolve=>chrome.once('exit',resolve));chrome.kill();await exited;}

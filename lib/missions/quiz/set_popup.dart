@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../word_text.dart';
 import 'content.dart';
 import 'status_stamp.dart';
 
@@ -75,7 +76,7 @@ class _QuizSetPopupState extends State<QuizSetPopup> {
               !q.isValid ||
               (widget.submitAnswers == null && q.correctIndex == null),
         )) {
-      return const Text('퀴즈 내용을 확인하고 있어요. 잠시 후 다시 열어 주세요.');
+      return const WordText('퀴즈 내용을 확인하고 있어요. 잠시 후 다시 열어 주세요.');
     }
     if (result != null) {
       final review = result!['answers'] as List?;
@@ -87,15 +88,17 @@ class _QuizSetPopupState extends State<QuizSetPopup> {
         children: [
           const Center(child: QuizStatusStamp(size: 80)),
           const SizedBox(height: 12),
-          Text(
+          WordText(
             '10문제 중 ${result!['correctCount']}문제 정답',
             textAlign: TextAlign.center,
             style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
           ),
           const SizedBox(height: 8),
-          Text(
+          WordText(
             widget.submitAnswers != null
-                ? '성장 보상 +${result!['growth']}%를 저장했어요.\n남은 영양분은 다음 작물을 심을 때 이어 받아요.'
+                ? widget.claimed
+                      ? '이번 특별 미션을 완료했어요.\n정답과 해설을 다시 확인해 보세요.'
+                      : '닫으면 영양분으로 +${result!['growth']}% 성장해요.\n남은 영양분은 다음 작물을 심을 때 이어 받아요.'
                 : widget.claimed
                 ? '오늘의 퀴즈를 완료했어요.'
                 : '닫으면 영양분으로 +${result!['growth']}% 성장해요.',
@@ -104,7 +107,7 @@ class _QuizSetPopupState extends State<QuizSetPopup> {
           if (widget.submitAnswers == null &&
               !widget.claimed &&
               (result!['growth'] as num) > 0)
-            const Text('작물은 최대 100%까지 자라요.', textAlign: TextAlign.center),
+            const WordText('작물은 최대 100%까지 자라요.', textAlign: TextAlign.center),
           const SizedBox(height: 16),
           for (var i = 0; i < questions.length; i++)
             _AnswerCard(
@@ -114,7 +117,7 @@ class _QuizSetPopupState extends State<QuizSetPopup> {
             ),
           FilledButton(
             onPressed: () => Navigator.pop(context),
-            child: Text(
+            child: WordText(
               widget.claimed || widget.submitAnswers != null
                   ? '닫기'
                   : '닫고 영양분 받기',
@@ -127,12 +130,12 @@ class _QuizSetPopupState extends State<QuizSetPopup> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text(
+        WordText(
           '${current + 1} / ${widget.questions.length}',
           textAlign: TextAlign.center,
         ),
         const SizedBox(height: 10),
-        Text(
+        WordText(
           question.question,
           textAlign: TextAlign.center,
           style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
@@ -151,14 +154,14 @@ class _QuizSetPopupState extends State<QuizSetPopup> {
                     ? Theme.of(context).colorScheme.primaryContainer
                     : null,
               ),
-              child: Text(question.choices[i], textAlign: TextAlign.center),
+              child: WordText(question.choices[i], textAlign: TextAlign.center),
             ),
           ),
-        if (error != null) Text(error!, textAlign: TextAlign.center),
+        if (error != null) WordText(error!, textAlign: TextAlign.center),
         if (current > 0)
           TextButton(
             onPressed: submitting ? null : () => setState(() => current--),
-            child: const Text('이전 문제'),
+            child: const WordText('이전 문제'),
           ),
         FilledButton(
           onPressed: submitting || answers[current] == null
@@ -170,7 +173,7 @@ class _QuizSetPopupState extends State<QuizSetPopup> {
                     setState(() => current++);
                   }
                 },
-          child: Text(
+          child: WordText(
             submitting
                 ? '채점 중…'
                 : current == widget.questions.length - 1
@@ -179,7 +182,7 @@ class _QuizSetPopupState extends State<QuizSetPopup> {
           ),
         ),
         const SizedBox(height: 8),
-        Text(
+        WordText(
           widget.submitAnswers != null
               ? '이번 특별 미션 1회 · 정답 하나당 성장 +10%\n제출 후에는 답을 바꿀 수 없어요.'
               : '과목별 하루 10문제 · 정답 하나당 성장 +10%',
@@ -232,7 +235,7 @@ class _AnswerCard extends StatelessWidget {
                 size: 22,
               ),
               const SizedBox(width: 6),
-              Text(
+              WordText(
                 correct == null
                     ? '정답 해설'
                     : correct
@@ -243,17 +246,17 @@ class _AnswerCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 8),
-          Text(
+          WordText(
             '$number. ${question.question}',
             style: const TextStyle(fontWeight: FontWeight.w700),
           ),
           const SizedBox(height: 8),
           if (answer != null)
-            Text(
+            WordText(
               '내 답 · ${question.choices[answer!['selected'] as int]}',
               style: TextStyle(color: color, fontWeight: FontWeight.w700),
             ),
-          Text(
+          WordText(
             '정답 · ${question.choices[question.correctIndex!]}',
             style: const TextStyle(
               color: Color(0xff237245),
@@ -262,7 +265,7 @@ class _AnswerCard extends StatelessWidget {
           ),
           if (question.explanation.isNotEmpty) ...[
             const SizedBox(height: 6),
-            Text(question.explanation),
+            WordText(question.explanation),
           ],
         ],
       ),

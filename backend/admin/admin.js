@@ -66,7 +66,7 @@ async function loadSpecial(){
 $('special-kind').onchange=()=>{
   activationRequest=null;
   $('custom-special').hidden=$('special-kind').value!=='custom';
-  $('special-help').textContent={gratitude:'학생의 학년·반·번호를 골라 10글자 이상의 감사 메시지를 작성합니다. 서로 다른 4명까지 작성하며 한 명당 성장도 25%를 받습니다.',patriots:'11월 17일 순국선열의 날 포스터를 읽고 10문제를 풉니다. 정답당 10%, 최대 100%를 한 번 지급하며 남은 영양분은 다음 작물로 이어집니다.',farmers:'11월 11일 농업인의 날 포스터를 읽고 10문제를 풉니다. 정답당 10%, 최대 100%를 한 번 지급하며 남은 영양분은 다음 작물로 이어집니다.',custom:'제목과 내용을 입력하면 학생에게 바로 표시됩니다. 완료한 학생에게 성장도 30%를 지급합니다.',off:'적용하면 학생의 특별미션이 종료됩니다.'}[$('special-kind').value];
+  $('special-help').textContent={gratitude:'학생의 학년·반·번호 또는 선생님 이름을 골라 10글자 이상의 감사 메시지를 작성합니다. 서로 다른 4명까지 작성하며 한 명당 성장도 25%를 받습니다. 등록 안 된 선생님에게 쓴 글은 해당 이름으로 참여한 뒤 전송할 수 있습니다.',patriots:'11월 17일 순국선열의 날 포스터를 읽고 10문제를 풉니다. 정답당 10%, 최대 100%를 한 번 지급하며 남은 영양분은 다음 작물로 이어집니다.',farmers:'11월 11일 농업인의 날 포스터를 읽고 10문제를 풉니다. 정답당 10%, 최대 100%를 한 번 지급하며 남은 영양분은 다음 작물로 이어집니다.',custom:'제목과 내용을 입력하면 학생에게 바로 표시됩니다. 완료한 학생에게 성장도 30%를 지급합니다.',off:'적용하면 학생의 특별미션이 종료됩니다.'}[$('special-kind').value];
 };
 for(const id of ['special-title','special-description'])$(id).oninput=()=>{activationRequest=null;};
 $('special-form').onsubmit=async event=>{
@@ -89,9 +89,13 @@ async function loadMessages(page){
     const date=document.createElement('p');date.textContent=new Date(item.createdAt).toLocaleString('ko-KR',{timeZone:'Asia/Seoul'})+' · 미션 '+item.missionId;
     const body=document.createElement('p');body.className='message-body';body.textContent=item.body;
     const actions=document.createElement('div');actions.className='message-actions';
-    const send=document.createElement('button');send.textContent=item.deliveredAt?'전송 완료':'전송';send.disabled=!!item.deliveredAt;
-    send.onclick=async()=>{send.disabled=true;send.textContent='전송 중…';send.setAttribute('aria-busy','true');try{await api('send-message',{id:item.id});await loadMessages(messagePage);$('message').textContent='학생에게 메시지를 전송했습니다.';}catch(error){showError(error);send.disabled=false;send.textContent='전송';}finally{send.removeAttribute('aria-busy');}};
-    actions.append(send);card.append(title,date,body,actions);$('review-messages').append(card);
+    const unregistered=item.recipientRegistered===false;
+    if(unregistered){const status=document.createElement('span');status.className='registration-status';status.textContent='등록 안됨';actions.append(status);const hint=document.createElement('p');hint.className='registration-help';hint.textContent='받는 선생님이 같은 이름으로 게임에 참여한 뒤 목록을 새로고침하면 전송할 수 있습니다.';card.append(title,date,body,hint);}
+    else card.append(title,date,body);
+    const send=document.createElement('button');send.textContent=item.deliveredAt?'전송 완료':'전송';send.disabled=!!item.deliveredAt||unregistered;
+    if(unregistered)send.title='받는 선생님이 같은 이름으로 게임에 참여한 뒤 목록을 새로고침하세요.';
+    send.onclick=async()=>{send.disabled=true;send.textContent='전송 중…';send.setAttribute('aria-busy','true');try{await api('send-message',{id:item.id});await loadMessages(messagePage);$('message').textContent='받는 사람에게 메시지를 전송했습니다.';}catch(error){showError(error);send.disabled=false;send.textContent='전송';}finally{send.removeAttribute('aria-busy');}};
+    actions.append(send);card.append(actions);$('review-messages').append(card);
   }
   $('message-page').textContent=`${messagePage+1} / ${messagePages}`;
   $('previous-messages').disabled=messagePage===0;$('next-messages').disabled=messagePage+1===messagePages;

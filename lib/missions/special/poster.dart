@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../word_text.dart';
 
 class CommemorativePoster extends StatelessWidget {
   const CommemorativePoster({super.key, required this.mission});
@@ -23,7 +24,7 @@ class CommemorativePoster extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
+              WordText(
                 poster['date'] as String,
                 style: TextStyle(
                   color: accent,
@@ -31,7 +32,7 @@ class CommemorativePoster extends StatelessWidget {
                   fontWeight: FontWeight.w900,
                 ),
               ),
-              Text(
+              WordText(
                 mission['title'] as String,
                 style: TextStyle(
                   color: ink,
@@ -53,7 +54,7 @@ class CommemorativePoster extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 18),
-              Text(
+              WordText(
                 poster['eyebrow'] as String,
                 style: TextStyle(
                   color: accent,
@@ -62,7 +63,7 @@ class CommemorativePoster extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 8),
-              Text(
+              WordText(
                 poster['headline'] as String,
                 style: TextStyle(
                   color: ink,
@@ -72,7 +73,7 @@ class CommemorativePoster extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 12),
-              Text(
+              WordText(
                 farmers ? '흙 · 수확 · 감사' : '독립 · 희생 · 기억',
                 style: TextStyle(color: ink, fontWeight: FontWeight.w600),
               ),
@@ -81,7 +82,7 @@ class CommemorativePoster extends StatelessWidget {
         ),
         const SizedBox(height: 22),
         for (final section in poster['sections'] as List) ...[
-          Text(
+          WordText(
             section['title'] as String,
             style: TextStyle(
               color: ink,
@@ -90,15 +91,18 @@ class CommemorativePoster extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 8),
-          Text(section['body'] as String, style: const TextStyle(height: 1.7)),
+          WordText(
+            section['body'] as String,
+            style: const TextStyle(height: 1.7),
+          ),
           const SizedBox(height: 18),
         ],
-        Text(
+        WordText(
           '자료: ${(poster['sources'] as List).map((s) => s['label']).join(' / ')}',
           style: const TextStyle(fontSize: 11, color: Color(0xff617168)),
         ),
         const SizedBox(height: 18),
-        const Text(
+        const WordText(
           '위 내용에서 10문제가 나와요.\n정답 1개당 성장 +10% · 이번 미션에서 한 번 참여해요.',
           textAlign: TextAlign.center,
           style: TextStyle(fontSize: 12, height: 1.7),
@@ -107,7 +111,7 @@ class CommemorativePoster extends StatelessWidget {
         FilledButton.icon(
           onPressed: () => Navigator.pop(context, true),
           icon: const Icon(Icons.quiz_outlined),
-          label: const Text('문제 풀기'),
+          label: const WordText('문제 풀기'),
         ),
       ],
     );

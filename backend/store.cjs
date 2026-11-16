@@ -22,7 +22,7 @@ function openStore(directory, {now = Date.now, dailyLimit = false} = {}) {
   const db = new DatabaseSync(path.join(directory, 'growgame.sqlite'));
   db.exec('PRAGMA busy_timeout=3000');
   const version = db.prepare('PRAGMA user_version').get().user_version;
-  if (version > 5) { db.close(); throw Error('이 서버보다 새로운 DB입니다. 서버를 업데이트하세요.'); }
+  if (version > 7) { db.close(); throw Error('이 서버보다 새로운 DB입니다. 서버를 업데이트하세요.'); }
   const schema = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8');
   const oldColumns = db.prepare('PRAGMA table_info(players)').all().map(column => column.name);
   if (oldColumns.length && !oldColumns.includes('role')) {
@@ -52,6 +52,24 @@ function openStore(directory, {now = Date.now, dailyLimit = false} = {}) {
       db.exec(`INSERT INTO special_campaigns_v5(id,request_id,kind,title,description,created_at)
         SELECT id,request_id,kind,title,description,created_at FROM special_campaigns;
         DROP TABLE special_campaigns; ALTER TABLE special_campaigns_v5 RENAME TO special_campaigns;`);
+      if (db.prepare('PRAGMA foreign_key_check').all().length) throw Error('DB 연결 기록을 확인하세요.');
+      db.exec('COMMIT');
+    } catch (error) { db.exec('ROLLBACK'); db.close(); throw error; }
+    db.exec('PRAGMA foreign_keys=ON');
+  }
+  const messageColumns = db.prepare('PRAGMA table_info(gratitude_messages)').all().map(column => column.name);
+  if (messageColumns.length && !messageColumns.includes('read_at')) {
+    db.exec("ALTER TABLE gratitude_messages ADD COLUMN read_at TEXT NOT NULL DEFAULT ''");
+  }
+  if (messageColumns.length && !messageColumns.includes('recipient_role')) {
+    // 학생 메시지의 id·읽음·보상을 유지하고 선생님 이름 수신을 추가합니다.
+    db.exec('PRAGMA foreign_keys=OFF; BEGIN IMMEDIATE');
+    try {
+      const messageSchema = schema.match(/CREATE TABLE IF NOT EXISTS gratitude_messages \([\s\S]*?\) STRICT;/)[0];
+      db.exec(messageSchema.replace('gratitude_messages (', 'gratitude_messages_v7 ('));
+      const columns = db.prepare('PRAGMA table_info(gratitude_messages)').all().map(column => column.name).join(',');
+      db.exec(`INSERT INTO gratitude_messages_v7(${columns}) SELECT ${columns} FROM gratitude_messages;
+        DROP TABLE gratitude_messages; ALTER TABLE gratitude_messages_v7 RENAME TO gratitude_messages;`);
       if (db.prepare('PRAGMA foreign_key_check').all().length) throw Error('DB 연결 기록을 확인하세요.');
       db.exec('COMMIT');
     } catch (error) { db.exec('ROLLBACK'); db.close(); throw error; }
@@ -96,6 +114,7 @@ function openStore(directory, {now = Date.now, dailyLimit = false} = {}) {
     const p = getPlayer(id);
     const counts = db.prepare('SELECT crop_id, COUNT(*) count FROM harvests WHERE player_id=? GROUP BY crop_id').all(id);
     return {profile:participantProfile(p), cropId:p.crop_id, progress:p.progress,pendingGratitudeGrowth:specialMissions.pendingGrowth(id),
+      unreadMessageCount:specialMissions.unreadCount(id),
       dailyMode:dailyLimit, waterDay:p.water_day, missionDay:p.mission_day, revision:p.revision,
       harvests:[], harvestCount:counts.reduce((n,c)=>n+c.count,0), collectionCounts:Object.fromEntries(counts.map(c=>[c.crop_id,c.count]))};
   }

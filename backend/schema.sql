@@ -81,17 +81,22 @@ CREATE TABLE IF NOT EXISTS gratitude_messages (
   player_id INTEGER NOT NULL REFERENCES players(id) ON DELETE CASCADE,
   request_id TEXT NOT NULL,
   sender_json TEXT NOT NULL,
-  recipient_grade INTEGER NOT NULL, recipient_class INTEGER NOT NULL,
-  recipient_number INTEGER NOT NULL, recipient_name TEXT NOT NULL,
+  recipient_role TEXT NOT NULL DEFAULT 'student' CHECK(recipient_role IN ('student','teacher')),
+  recipient_grade INTEGER, recipient_class INTEGER,
+  recipient_number INTEGER, recipient_name TEXT NOT NULL,
   body TEXT NOT NULL, char_count INTEGER NOT NULL,
-  created_at TEXT NOT NULL, delivered_at TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL, delivered_at TEXT NOT NULL DEFAULT '', read_at TEXT NOT NULL DEFAULT '',
   reward_remaining INTEGER NOT NULL DEFAULT 25 CHECK(reward_remaining BETWEEN 0 AND 25),
   notion_page_id TEXT NOT NULL DEFAULT '', notion_delivered INTEGER NOT NULL DEFAULT 0,
   sync_after INTEGER NOT NULL DEFAULT 0,
   UNIQUE(player_id,request_id),
-  UNIQUE(campaign_id,player_id,recipient_grade,recipient_class,recipient_number)
+  UNIQUE(campaign_id,player_id,recipient_grade,recipient_class,recipient_number),
+  CHECK((recipient_role='student' AND recipient_grade IS NOT NULL AND recipient_class IS NOT NULL AND recipient_number IS NOT NULL)
+    OR (recipient_role='teacher' AND recipient_grade IS NULL AND recipient_class IS NULL AND recipient_number IS NULL AND length(recipient_name)>0))
 ) STRICT;
 CREATE INDEX IF NOT EXISTS gratitude_inbox ON gratitude_messages(recipient_grade,recipient_class,recipient_number,delivered_at);
+CREATE INDEX IF NOT EXISTS gratitude_teacher_inbox ON gratitude_messages(recipient_name,delivered_at) WHERE recipient_role='teacher';
+CREATE UNIQUE INDEX IF NOT EXISTS gratitude_teacher_recipient ON gratitude_messages(campaign_id,player_id,recipient_name) WHERE recipient_role='teacher';
 CREATE INDEX IF NOT EXISTS gratitude_sender ON gratitude_messages(player_id,campaign_id);
 CREATE TABLE IF NOT EXISTS special_quiz_results (
   campaign_id INTEGER NOT NULL REFERENCES special_campaigns(id),
@@ -101,4 +106,4 @@ CREATE TABLE IF NOT EXISTS special_quiz_results (
   created_at TEXT NOT NULL,
   PRIMARY KEY(campaign_id,player_id)
 ) STRICT;
-PRAGMA user_version = 5;
+PRAGMA user_version = 7;

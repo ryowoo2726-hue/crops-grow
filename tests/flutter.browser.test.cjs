@@ -39,6 +39,7 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     const healthMethods=[];
     const quizRequests=[];
     const quizClaims=[];
+    const specialSubmissions=[];
     const pending = new Map(), errors = [], harvestImages = new Map(), cropImages = new Map(), missionRequests = [];
     socket.addEventListener('message', event => {
       const m = JSON.parse(event.data);
@@ -50,6 +51,7 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
         const url=m.params.request.url;
         if(url.endsWith('/api/health'))healthMethods.push(m.params.request.method);
         if (m.params.request.method==='POST' && /\/api\/quiz-runs(?:\/submit)?$/.test(url)) quizRequests.push({url,body:JSON.parse(m.params.request.postData)});
+        if (m.params.request.method==='POST' && url.endsWith('/api/special-quiz/submit')) specialSubmissions.push(JSON.parse(m.params.request.postData));
         if (m.params.request.method==='POST' && url.endsWith('/api/actions')) {
           const body=JSON.parse(m.params.request.postData);
           if(body.kind==='quiz-set')quizClaims.push(body);
@@ -99,13 +101,14 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
       await send('Input.dispatchMouseEvent', {type:'mouseReleased', ...point, button:'left', clickCount:1});
       await sleep(400);
     };
-    const fillInput = async (label, text) => {
+    const fillInput = async (label, text, replace = false) => {
       const selector=`input[aria-label=${JSON.stringify(label)}],textarea[aria-label=${JSON.stringify(label)}]`;
       await wait(`!!document.querySelector(${JSON.stringify(selector)})`);
       const point=await run(`(()=>{const r=document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2};})()`);
       await send('Input.dispatchMouseEvent',{type:'mousePressed',...point,button:'left',clickCount:1});
       await send('Input.dispatchMouseEvent',{type:'mouseReleased',...point,button:'left',clickCount:1});
       await sleep(200);
+      if(replace)await run(`document.querySelector(${JSON.stringify(selector)}).select()`);
       await send('Input.insertText',{text});
       await sleep(300);
     };
@@ -312,22 +315,74 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     await clickText('검토받기 +25%');
     await wait("document.querySelector('flt-semantics-host')?.textContent.includes('75 / 100%')");
     await sleep(1900);
+    const teacherRecipientName='새수신교사';
+    await clickText('미션');await clickText('특별 미션');await clickText('선생님');
+    await fillInput('받는 선생님 성함',teacherRecipientName);
+    await fillInput('감사의 말','늘 따뜻하게 가르쳐 주셔서 정말 감사합니다.');
+    await clickText('검토받기 +25%');
+    await wait("document.querySelector('flt-semantics-host')?.textContent.includes('100 / 100%')");
+    await sleep(1900);
+    const savedTeacherMessage=app.store.specialMissions.review('pending',0).items.find(item=>item.recipient.role==='teacher'&&item.recipient.name===teacherRecipientName);
+    assert.ok(savedTeacherMessage,'선생님 이름 수신 메시지를 SQLite에 저장');
+    assert.equal(savedTeacherMessage.recipientRegistered,false,'미등록 선생님에게 쓴 메시지는 등록 대기로 보관');
 
-    const savedMessage=app.store.db.prepare('SELECT id FROM gratitude_messages WHERE campaign_id=?').get(gratitude.id);
+    const savedMessage=app.store.specialMissions.review('pending',0).items.find(item=>item.recipient.role!=='teacher');
     assert.ok(savedMessage.id,'메시지가 SQLite에 저장됨');
     assert.equal(app.store.specialMissions.inbox(1,0).total,0,'관리자 전송 전에는 학생에게 메시지가 도착하지 않음');
     const adminResponse=await fetch(`http://127.0.0.1:${apiPort}/api/admin/session`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:'6815'})});
     const adminToken=(await adminResponse.json()).token;
     const sentResponse=await fetch(`http://127.0.0.1:${apiPort}/api/admin/send-message`,{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+adminToken},body:JSON.stringify({id:savedMessage.id})});
     assert.equal(sentResponse.status,200);
+    // 기존 수확 검증에서 비워 둔 가상 학생의 밭에 특별 퀴즈 효과 검증용 작물을 준비합니다.
+    app.store.db.prepare("UPDATE players SET crop_id='rice',progress=0,revision=revision+1 WHERE id=1").run();
     await clickText('가상교사 선생님');await clickText('참여 정보 바꾸기');
     await clickText('학생');await fillInput('비밀번호 4자리','1234');await clickText('시작하기');
     await wait("document.querySelector('flt-semantics-host')?.textContent.includes('3학년 10반 가상학생')");
+    const unreadBadge="[...document.querySelectorAll('flt-semantics')].some(e=>(e.getAttribute('aria-label')||e.textContent)==='메시지, 안 읽은 메시지 1개')";
+    await wait(unreadBadge);
+    const unreadShot=await send('Page.captureScreenshot');
+    fs.writeFileSync(path.join(os.tmpdir(),'growgame-unread-message-badge.png'),Buffer.from(unreadShot.data,'base64'));
     await clickText('메시지');
+    await wait("document.querySelector('flt-semantics-host')?.textContent.includes('새 메시지')");
+    assert.equal(app.store.db.prepare('SELECT read_at FROM gratitude_messages WHERE id=?').get(savedMessage.id).read_at,'','목록 조회만으로 읽음 처리하지 않음');
+    assert.equal(await run("document.querySelector('flt-semantics-host').textContent.includes('친절하게 도와주어서 정말 고맙고 감사해요.')"),false,'펼치기 전 메시지 본문은 숨김');
+    await clickText('가상교사 선생님');
     await wait("document.querySelector('flt-semantics-host')?.textContent.includes('친절하게 도와주어서 정말 고맙고 감사해요.')");
+    for(let n=0;n<50&&!app.store.db.prepare('SELECT read_at FROM gratitude_messages WHERE id=?').get(savedMessage.id).read_at;n++)await sleep(100);
+    assert.ok(app.store.db.prepare('SELECT read_at FROM gratitude_messages WHERE id=?').get(savedMessage.id).read_at,'메시지 본문을 연 뒤 SQLite에 읽음 시각 저장');
     const inboxShot=await send('Page.captureScreenshot');
     fs.writeFileSync(path.join(os.tmpdir(),'growgame-gratitude-inbox.png'),Buffer.from(inboxShot.data,'base64'));
     await clickText('닫기');
+    assert.equal(await run(unreadBadge),false,'읽은 뒤 메시지 개수 강조 제거');
+    await clickText('메시지');
+    await wait("document.querySelector('flt-semantics-host')?.textContent.includes('가상교사 선생님')");
+    assert.equal(await run("document.querySelector('flt-semantics-host').textContent.includes('새 메시지')"),false,'다시 열어도 읽음 상태 유지');
+    await clickText('닫기');
+    // 받는 선생님이 같은 이름으로 참여한 뒤 관리자 전송과 교사 읽음 표시를 검증합니다.
+    await clickText('3학년 10반 가상학생');await clickText('참여 정보 바꾸기');await clickText('선생님');
+    await fillInput('선생님 이름',teacherRecipientName,true);await fillInput('비밀번호 4자리','2468');await clickText('시작하기');
+    await wait(`document.querySelector('flt-semantics-host')?.textContent.includes('${teacherRecipientName} 선생님')`);
+    const teacherSent=await fetch(`http://127.0.0.1:${apiPort}/api/admin/send-message`,{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+adminToken},body:JSON.stringify({id:savedTeacherMessage.id})});
+    assert.equal(teacherSent.status,200);
+    await clickText('도감');await clickText('내 밭');await wait(unreadBadge);
+    await clickText('메시지');await wait("document.querySelector('flt-semantics-host')?.textContent.includes('새 메시지')");
+    await clickText('가상교사 선생님');
+    await wait("document.querySelector('flt-semantics-host')?.textContent.includes('늘 따뜻하게 가르쳐 주셔서 정말 감사합니다.')");
+    for(let n=0;n<50&&!app.store.db.prepare('SELECT read_at FROM gratitude_messages WHERE id=?').get(savedTeacherMessage.id).read_at;n++)await sleep(100);
+    assert.ok(app.store.db.prepare('SELECT read_at FROM gratitude_messages WHERE id=?').get(savedTeacherMessage.id).read_at);
+    await clickText('닫기');assert.equal(await run(unreadBadge),false,'교사 수신 메시지도 읽으면 알림 제거');
+    await clickText(`${teacherRecipientName} 선생님`);await clickText('참여 정보 바꾸기');await clickText('학생');
+    await fillInput('비밀번호 4자리','1234');await clickText('시작하기');
+    await wait("document.querySelector('flt-semantics-host')?.textContent.includes('3학년 10반 가상학생')");
+    const openPosterQuiz=async()=>{
+      await clickText('미션');await clickText('특별 미션');
+      const startVisible=`(()=>{const e=[...document.querySelectorAll('flt-semantics[role="button"][flt-tappable]')].find(e=>(e.getAttribute('aria-label')||e.textContent).includes('문제 풀기'));if(!e)return false;const r=e.getBoundingClientRect();return r.y>60&&r.bottom<innerHeight-30;})()`;
+      for(let n=0;n<30&&!(await run(startVisible));n++){
+        await send('Input.dispatchMouseEvent',{type:'mouseWheel',x:195,y:550,deltaX:0,deltaY:400});await sleep(200);
+      }
+      await wait(startVisible);
+      return ()=>clickText('문제 풀기');
+    };
     for(const kind of ['patriots','farmers']){
       const mission=app.store.specialMissions.activate({kind,requestId:'browser-commemoration-'+kind});
       const questions=JSON.parse(app.store.db.prepare('SELECT content_json FROM special_campaigns WHERE id=?').get(mission.id).content_json).questions;
@@ -341,15 +396,11 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
         await clickText('닫기');
       }
       await send('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
-      await sleep(350);await clickText('미션');await clickText('특별 미션');
-      const startVisible=`(()=>{const e=[...document.querySelectorAll('flt-semantics[role="button"][flt-tappable]')].find(e=>(e.getAttribute('aria-label')||e.textContent).includes('문제 풀기'));if(!e)return false;const r=e.getBoundingClientRect();return r.y>60&&r.bottom<innerHeight-30;})()`;
-      for(let n=0;n<30&&!(await run(startVisible));n++){
-        await send('Input.dispatchMouseEvent',{type:'mouseWheel',x:195,y:550,deltaX:0,deltaY:400});await sleep(200);
-      }
-      await wait(startVisible);
+      await sleep(350);
+      const startQuiz=await openPosterQuiz();
       const readingShot=await send('Page.captureScreenshot');
       fs.writeFileSync(path.join(os.tmpdir(),`growgame-${kind}-reading.png`),Buffer.from(readingShot.data,'base64'));
-      await clickText('문제 풀기');
+      await startQuiz();
       await wait("document.querySelector('flt-semantics-host')?.textContent.includes('1 / 10')");
       for(let i=0;i<10;i++){
         await clickText(questions[i].choices[i<7?questions[i].correctIndex:(questions[i].correctIndex+1)%4]);
@@ -362,9 +413,48 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
       const result=app.store.db.prepare('SELECT result_json FROM special_quiz_results WHERE campaign_id=?').get(mission.id);
       assert.equal(JSON.parse(result.result_json).growth,70);
       await clickText('닫기');
+      await wait("document.querySelector('flt-semantics-host')?.textContent.includes('영양분이 뿌리로 쏙!')");
+      const effectShot=await send('Page.captureScreenshot');
+      fs.writeFileSync(path.join(os.tmpdir(),`growgame-${kind}-nutrient-effect.png`),Buffer.from(effectShot.data,'base64'));
+      await wait("!document.querySelector('flt-semantics-host')?.textContent.includes('영양분이 뿌리로 쏙!')");
+      const expected=kind==='patriots'?70:100;
+      assert.equal(app.store.snapshot(1).progress,expected);
+      assert.equal(await run(`document.querySelector('flt-semantics-host').textContent.includes('${expected} / 100%')`),true);
+      const submissionsBefore=specialSubmissions.length;
+      const reopen=await openPosterQuiz();await reopen();
+      await wait("document.querySelector('flt-semantics-host')?.textContent.includes('10문제 중 7문제 정답')");
+      await clickText('닫기');
+      assert.equal(await run("document.querySelector('flt-semantics-host').textContent.includes('영양분이 뿌리로 쏙!')"),false,'완료 결과를 다시 닫아도 효과 재생 없음');
+      assert.equal(app.store.snapshot(1).progress,expected,'완료 결과 재열기로 중복 성장 없음');
+      assert.equal(specialSubmissions.length,submissionsBefore,'완료 결과 재열기로 재제출 없음');
     }
+    // 제출 응답 전에 창을 닫아도 보상 처리 중 입력을 막고 응답 후 효과를 이어갑니다.
+    app.store.db.prepare("UPDATE players SET crop_id='rice',progress=0,revision=revision+1 WHERE id=1").run();
+    app.store.db.prepare('UPDATE special_quiz_results SET reward_remaining=0 WHERE player_id=1').run();
+    await clickText('도감');await clickText('내 밭');
+    await wait("document.querySelector('flt-semantics-host')?.textContent.includes('0 / 100%')");
+    const raceMission=app.store.specialMissions.activate({kind:'patriots',requestId:'browser-commemoration-close-pending'});
+    const raceQuestions=JSON.parse(app.store.db.prepare('SELECT content_json FROM special_campaigns WHERE id=?').get(raceMission.id).content_json).questions;
+    const raceStart=await openPosterQuiz();await raceStart();
+    await wait("document.querySelector('flt-semantics-host')?.textContent.includes('1 / 10')");
+    for(let i=0;i<10;i++){
+      await clickText(raceQuestions[i].choices[raceQuestions[i].correctIndex]);
+      if(i===9)await send('Fetch.enable',{patterns:[{urlPattern:'*/api/special-quiz/submit',requestStage:'Request'}]});
+      await clickText(i===9?'채점하고 정답 보기':'다음 문제');
+    }
+    assert.ok(pausedAction,'특별 퀴즈 제출 응답을 보류함');
+    await clickText('닫기');await sleep(500);
+    assert.equal(app.store.db.prepare('SELECT COUNT(*) n FROM special_quiz_results WHERE campaign_id=?').get(raceMission.id).n,0);
+    assert.equal(await run("[...document.querySelectorAll('flt-semantics[role=\"button\"]')].some(e=>(e.getAttribute('aria-label')||e.textContent).includes('물 주기')&&e.getAttribute('aria-disabled')==='true')"),true,'창을 닫은 뒤에도 제출 중 다른 성장 입력 차단');
+    await send('Fetch.continueRequest',{requestId:pausedAction});pausedAction=null;await send('Fetch.disable');
+    await wait("document.querySelector('flt-semantics-host')?.textContent.includes('영양분이 뿌리로 쏙!')");
+    const pendingClosedShot=await send('Page.captureScreenshot');
+    fs.writeFileSync(path.join(os.tmpdir(),'growgame-special-closed-submit-effect.png'),Buffer.from(pendingClosedShot.data,'base64'));
+    await wait("!document.querySelector('flt-semantics-host')?.textContent.includes('영양분이 뿌리로 쏙!')");
+    assert.equal(app.store.snapshot(1).progress,100);
+    assert.equal(app.store.db.prepare('SELECT COUNT(*) n FROM special_quiz_results WHERE campaign_id=?').get(raceMission.id).n,1);
     assert.equal(errors.length, 0, JSON.stringify(errors));
-    console.log('Flutter Chrome 통과: 명단·교사·퀴즈·성장·수확·랭킹·복구·DB 메시지 전송·기념일 2종 포스터와 10문항·3가지 화면');
+    console.log('Flutter Chrome 통과: 명단·교사·퀴즈·성장·수확·랭킹·복구·학생/교사 메시지 전송·읽음 알림·기념일 2종 영양분 효과·제출 중 닫기·3가지 화면');
   } finally {
     socket?.close(); proc.kill();
     if(app.server.listening) await stopApi();

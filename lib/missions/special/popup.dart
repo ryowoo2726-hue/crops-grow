@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../word_text.dart';
 
 // 특별 미션의 배치·색상·완료 조건은 이 파일에서 수정합니다.
 class SpecialMissionPopup extends StatefulWidget {
@@ -21,21 +22,21 @@ class _SpecialMissionPopupState extends State<SpecialMissionPopup> {
     if (mission == null)
       return const Padding(
         padding: EdgeInsets.symmetric(vertical: 24),
-        child: Text('특별 미션을 준비하고 있어요.', textAlign: TextAlign.center),
+        child: WordText('특별 미션을 준비하고 있어요.', textAlign: TextAlign.center),
       );
     return Column(
       children: [
-        Text(
+        WordText(
           mission['title']!,
           textAlign: TextAlign.center,
           style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
         ),
         const SizedBox(height: 16),
-        Text(mission['description']!, textAlign: TextAlign.center),
+        WordText(mission['description']!, textAlign: TextAlign.center),
         const SizedBox(height: 18),
         CheckboxListTile(
           contentPadding: EdgeInsets.zero,
-          title: const Text('미션을 완료했어요'),
+          title: const WordText('미션을 완료했어요'),
           value: checked,
           onChanged: widget.canComplete
               ? (value) => setState(() => checked = value ?? false)
@@ -47,13 +48,16 @@ class _SpecialMissionPopupState extends State<SpecialMissionPopup> {
             onPressed: checked && widget.canComplete
                 ? () => Navigator.pop(context, true)
                 : null,
-            child: const Text('완료하기'),
+            child: const WordText('완료하기'),
           ),
         ),
         if (!widget.canComplete)
           const Padding(
             padding: EdgeInsets.only(top: 10),
-            child: Text('지금은 성장 보상을 받을 수 없어요.', style: TextStyle(fontSize: 12)),
+            child: WordText(
+              '지금은 성장 보상을 받을 수 없어요.',
+              style: TextStyle(fontSize: 12),
+            ),
           ),
       ],
     );

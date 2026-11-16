@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../word_text.dart';
 import 'content.dart';
 
 // 퀴즈의 배치·색상·정답 확인 흐름은 이 파일에서 수정합니다.
@@ -28,15 +29,15 @@ class _QuizMissionPopupState extends State<QuizMissionPopup> {
     if (widget.questions.isEmpty)
       return const Padding(
         padding: EdgeInsets.symmetric(vertical: 24),
-        child: Text('이번 주 퀴즈를 준비하고 있어요.', textAlign: TextAlign.center),
+        child: WordText('이번 주 퀴즈를 준비하고 있어요.', textAlign: TextAlign.center),
       );
     if (!widget.questions.every((q) => q.isValid))
-      return const Text('퀴즈 내용을 확인하고 있어요. 잠시 후 다시 열어 주세요.');
+      return const WordText('퀴즈 내용을 확인하고 있어요. 잠시 후 다시 열어 주세요.');
     final question = widget.questions[current];
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text(
+        WordText(
           question.question,
           textAlign: TextAlign.center,
           style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
@@ -58,13 +59,13 @@ class _QuizMissionPopupState extends State<QuizMissionPopup> {
                     ? Theme.of(context).colorScheme.primaryContainer
                     : null,
               ),
-              child: Text(question.choices[i], textAlign: TextAlign.center),
+              child: WordText(question.choices[i], textAlign: TextAlign.center),
             ),
           ),
         if (feedback != null)
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 10),
-            child: Text(feedback!, textAlign: TextAlign.center),
+            child: WordText(feedback!, textAlign: TextAlign.center),
           ),
         FilledButton(
           onPressed:
@@ -109,7 +110,7 @@ class _QuizMissionPopupState extends State<QuizMissionPopup> {
                     }
                   }
                 },
-          child: Text(
+          child: WordText(
             checking
                 ? '확인 중…'
                 : !correct
@@ -122,7 +123,7 @@ class _QuizMissionPopupState extends State<QuizMissionPopup> {
         if (!widget.canComplete)
           const Padding(
             padding: EdgeInsets.only(top: 10),
-            child: Text(
+            child: WordText(
               '지금은 성장 보상을 받을 수 없어요.',
               textAlign: TextAlign.center,
               style: TextStyle(fontSize: 12),

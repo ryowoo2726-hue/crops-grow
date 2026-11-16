@@ -37,13 +37,13 @@
           <label for="special-kind">미션 종류</label>
           <select id="special-kind"><option value="gratitude">감사 편지 보내기 · 4명 × 25%</option><option value="patriots">순국선열의 날 · 포스터 + 퀴즈 10문제</option><option value="farmers">농업인의 날 · 포스터 + 퀴즈 10문제</option><option value="custom">직접 작성한 특별미션 · 30%</option><option value="off">특별미션 종료</option></select>
           <div id="custom-special" hidden><label for="special-title">미션 제목</label><input id="special-title" maxlength="60"><label for="special-description">미션 내용</label><textarea id="special-description" rows="5" maxlength="600"></textarea></div>
-          <p id="special-help">학생의 학년·반·번호를 골라 10글자 이상의 감사 메시지를 작성합니다. 서로 다른 4명까지 작성하며 한 명당 성장도 25%를 받습니다.</p>
+          <p id="special-help">학생의 학년·반·번호 또는 선생님 이름을 골라 10글자 이상의 감사 메시지를 작성합니다. 학생과 선생님을 합해 서로 다른 4명까지 작성하며 한 명당 성장도 25%를 받습니다.</p>
           <button type="submit">선택한 미션 적용</button>
           <p class="notice">한 번에 한 미션을 운영합니다. 누를 때마다 새 미션이 즉시 적용되며, 감사 편지 4명 제한과 특별 퀴즈 1회 참여가 새로 시작됩니다. 기존 기록은 보관합니다.</p>
         </form>
       </div>
       <div id="messages-panel" class="admin-panel" hidden>
-        <div class="page-title"><div><h1>메시지 전송</h1><p>아래 내용을 확인한 뒤 전송을 누르세요. 학생에게 전달되기 전까지 서버 DB에 보관합니다.</p></div><button id="refresh-messages" class="secondary">목록 새로고침</button></div>
+        <div class="page-title"><div><h1>메시지 전송</h1><p>아래 내용을 확인한 뒤 전송을 누르세요. 받는 사람에게 전달되기 전까지 서버 DB에 보관합니다. 선생님이 아직 참여하지 않았으면 등록 안됨으로 표시됩니다.</p></div><button id="refresh-messages" class="secondary">목록 새로고침</button></div>
         <div class="message-toolbar"><label for="message-status">전송 상태</label><select id="message-status"><option value="pending">전송 대기</option><option value="sent">전송 완료</option><option value="all">전체</option></select></div>
         <div id="review-messages"></div>
         <p id="messages-empty" hidden>이 상태의 메시지가 없습니다.</p>
