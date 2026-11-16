@@ -7,19 +7,113 @@ const {backup}=require('node:sqlite');
 const {createBackend}=require('./server.cjs');
 const {hashPassword}=require('./admin.cjs');
 const {parseRoster}=require('./roster.cjs');
-const {createNotionClient}=require('./notion.cjs');
 
-test('관리자 미션 교체·감사 메시지 4명·25% 보상·노션 저장 후 수동 전송',async t=>{
+test('기념일 특별 퀴즈: 관리자 선택, 10문항, 서버 채점, 재시도·재접속·교체·남은 보상',async t=>{
+  const directory=fs.mkdtempSync(path.join(os.tmpdir(),'growgame-special-quiz-'));
+  let app=createBackend({directory,adminCredentials:await hashPassword('1234')});
+  const start=()=>new Promise(resolve=>app.server.listen(0,'127.0.0.1',resolve));
+  await start();
+  t.after(async()=>{await new Promise(resolve=>app.server.close(resolve));app.store.db.close();assert.ok(directory.startsWith(path.resolve(os.tmpdir())+path.sep));fs.rmSync(directory,{recursive:true,force:true});});
+  const student=await app.store.login({grade:1,classNo:1,number:1},'1234');
+  const id=app.store.authenticate(student.token);
+  async function request(route,body,token=student.token){
+    const response=await fetch(`http://127.0.0.1:${app.server.address().port}`+route,{method:body?'POST':'GET',headers:{'Content-Type':'application/json',...(token?{Authorization:`Bearer ${token}`}:{})},body:body?JSON.stringify(body):undefined});
+    return {status:response.status,data:await response.json()};
+  }
+  const admin=(await request('/api/admin/session',{password:'1234'},'')).data.token;
+  assert.equal((await request('/api/admin/special',{kind:'patriots',requestId:'special-admin-0001'})).status,401);
+  assert.equal((await request('/api/special-quiz?missionId=1',null,'')).status,401);
+  let lastMission;
+  for(const kind of ['patriots','farmers']){
+    const mission=(await request('/api/admin/special',{kind,requestId:'special-quiz-'+kind},admin)).data.mission;
+    lastMission=mission;
+    assert.equal(mission.poster.sections.length,4);
+    assert.ok(!JSON.stringify(mission).includes('correctIndex'));
+    const opened=(await request('/api/special-quiz?missionId='+mission.id)).data;
+    assert.equal(opened.questions.length,10);assert.equal(opened.result,null);
+    assert.ok(!JSON.stringify(opened).includes('correctIndex'));
+    assert.equal((await request('/api/actions',{kind:'special',missionId:mission.id,missionRevision:mission.id,requestId:'bypass-quiz-'+kind})).status,409);
+    const answers=JSON.parse(app.store.db.prepare('SELECT content_json FROM special_campaigns WHERE id=?').get(mission.id).content_json).questions.map(q=>q.correctIndex);
+    for(const invalid of [[],answers.slice(1),[9,...answers.slice(1)],[null,...answers.slice(1)]])
+      assert.equal((await request('/api/special-quiz/submit',{missionId:mission.id,answers:invalid})).status,400);
+    // 7개 정답, 3개 오답. 클라이언트의 임의 growth 값은 무시합니다.
+    const mixed=answers.map((answer,i)=>i<7?answer:(answer+1)%4);
+    const input={missionId:mission.id,answers:mixed,growth:100};
+    const response=(await request('/api/special-quiz/submit',input)).data;
+    assert.equal(response.result.correctCount,7);assert.equal(response.result.growth,70);
+    assert.equal(response.result.answers.filter(a=>a.correct).length,7);
+    const revision=response.state.revision;
+    for(let n=0;n<2;n++){
+      const again=(await request('/api/special-quiz/submit',{...input,answers})).data;
+      assert.deepEqual(again.result,response.result);assert.equal(again.state.revision,revision);
+    }
+    assert.deepEqual((await request('/api/special-quiz?missionId='+mission.id)).data.result,response.result);
+  }
+  assert.equal(app.store.snapshot(id).progress,100);
+  assert.equal(app.store.specialMissions.pendingGrowth(id),40);
+  app.store.action(id,{kind:'harvest',requestId:'special-quiz-harvest'});
+  assert.equal(app.store.action(id,{kind:'plant',cropId:'apple',requestId:'special-quiz-plant'}).state.progress,40);
+  assert.equal(app.store.specialMissions.pendingGrowth(id),0);
+  // 재시작에도 최초 점수·답안·보상을 유지합니다.
+  await new Promise(resolve=>app.server.close(resolve));app.store.db.close();
+  app=createBackend({directory});await start();
+  assert.equal((await request('/api/special-quiz?missionId='+lastMission.id)).data.result.correctCount,7);
+  const replacement=app.store.specialMissions.activate({kind:'patriots',requestId:'special-quiz-replacement'});
+  assert.notEqual(replacement.id,lastMission.id);
+  assert.equal((await request('/api/special-quiz?missionId='+lastMission.id)).status,409);
+  assert.equal((await request('/api/special-quiz?missionId='+replacement.id)).data.result,null);
+  const other=await app.store.login({grade:1,classNo:1,number:2},'1234');
+  assert.equal((await request('/api/special-quiz/submit',{missionId:lastMission.id,answers:Array(10).fill(0)},other.token)).status,409);
+  const correct=JSON.parse(app.store.db.prepare('SELECT content_json FROM special_campaigns WHERE id=?').get(replacement.id).content_json).questions.map(q=>q.correctIndex);
+  const perfect=(await request('/api/special-quiz/submit',{missionId:replacement.id,answers:correct})).data;
+  assert.equal(perfect.result.growth,100);assert.equal(perfect.state.progress,100);
+  assert.equal(app.store.specialMissions.pendingGrowth(id),40);
+  const zero=(await request('/api/special-quiz/submit',{missionId:replacement.id,answers:correct.map(a=>(a+1)%4)},other.token)).data;
+  assert.equal(zero.result.growth,0);assert.equal(zero.state.progress,0);
+  assert.equal((await request('/api/special-quiz/submit',{missionId:replacement.id,answers:correct},other.token)).data.result.growth,0);
+  const unfinished=app.store.specialMissions.activate({kind:'farmers',requestId:'special-quiz-unfinished'});
+  app.store.specialMissions.activate({kind:'off',requestId:'special-quiz-finished'});
+  assert.equal((await request('/api/special-quiz/submit',{missionId:unfinished.id,answers:Array(10).fill(0)})).status,409);
+  app.store.deleteStudent({grade:1,classNo:1,number:1});
+  assert.equal(app.store.db.prepare('SELECT COUNT(*) n FROM special_quiz_results WHERE player_id=?').get(id).n,0);
+  assert.deepEqual(app.store.db.prepare('PRAGMA foreign_key_check').all(),[]);
+});
+
+test('v4 미션 이전: 기존 감사 메시지·학생·보상 보존과 노션 없이 전송',async t=>{
+  const directory=fs.mkdtempSync(path.join(os.tmpdir(),'growgame-v4-'));
+  let app=createBackend({directory});
+  t.after(()=>{app.store.db.close();assert.ok(directory.startsWith(path.resolve(os.tmpdir())+path.sep));fs.rmSync(directory,{recursive:true,force:true});});
+  app.store.importRoster([{grade:1,classNo:1,number:1,name:'가상발신자'},{grade:1,classNo:1,number:2,name:'가상수신자'}]);
+  const student=await app.store.login({grade:1,classNo:1,number:1},'1234');
+  const id=app.store.authenticate(student.token);
+  const mission=app.store.specialMissions.activate({kind:'gratitude',requestId:'v4-mission-request'});
+  const saved=app.store.specialMissions.submit(id,{missionId:mission.id,requestId:'v4-message-request',recipient:{grade:1,classNo:1,number:2},message:'언제나 친절하게 도와주어서 정말 고마워요.'});
+  const before=app.store.snapshot(id);
+  app.store.db.exec(`PRAGMA foreign_keys=OFF;
+    CREATE TABLE campaigns_v4 (id INTEGER PRIMARY KEY AUTOINCREMENT,request_id TEXT NOT NULL UNIQUE,
+      kind TEXT NOT NULL CHECK(kind IN ('gratitude','custom','off')),title TEXT NOT NULL,description TEXT NOT NULL,created_at TEXT NOT NULL) STRICT;
+    INSERT INTO campaigns_v4 SELECT id,request_id,kind,title,description,created_at FROM special_campaigns;
+    DROP TABLE special_campaigns; ALTER TABLE campaigns_v4 RENAME TO special_campaigns;
+    DROP TABLE special_quiz_results; PRAGMA user_version=4;`);
+  app.store.db.close();app=createBackend({directory});
+  assert.deepEqual(app.store.snapshot(id),before);
+  assert.equal(app.store.special().id,mission.id);
+  assert.equal(app.store.specialMissions.review('pending',0).items[0].id,saved.id);
+  app.store.specialMissions.deliver(saved.id);
+  const delivered=app.store.specialMissions.review('sent',0).items[0].deliveredAt;
+  assert.ok(delivered);
+  app.store.specialMissions.deliver(saved.id);
+  assert.equal(app.store.specialMissions.review('sent',0).items[0].deliveredAt,delivered);
+  assert.equal(app.store.db.prepare('PRAGMA user_version').get().user_version,5);
+  assert.deepEqual(app.store.db.prepare('PRAGMA foreign_key_check').all(),[]);
+});
+
+test('관리자 미션 교체·감사 메시지 4명·25% 보상·DB 검토 후 수동 전송',async t=>{
   const directory=fs.mkdtempSync(path.join(os.tmpdir(),'growgame-gratitude-'));
-  let clock=Date.now(),notionFails=true;
-  const exported=new Set(),delivered=[];
-  const notionClient={reviewPageUrl:'https://www.notion.so/test-review',
-    ensurePage:async row=>{if(notionFails)throw Error('temporary failure');exported.add(row.id);return '11111111-1111-1111-1111-'+row.id.slice(-12);},
-    markDelivered:async row=>{delivered.push(row.id);},
-  };
-  const app=createBackend({directory,now:()=>clock,notionClient,adminCredentials:await hashPassword('1234')});
+  let clock=Date.now();
+  const app=createBackend({directory,now:()=>clock,adminCredentials:await hashPassword('1234')});
   await new Promise(resolve=>app.server.listen(0,'127.0.0.1',resolve));
-  t.after(async()=>{await app.notionSync.flush();await new Promise(resolve=>app.server.close(resolve));app.store.db.close();assert.ok(directory.startsWith(path.resolve(os.tmpdir())+path.sep));fs.rmSync(directory,{recursive:true,force:true});});
+  t.after(async()=>{await new Promise(resolve=>app.server.close(resolve));app.store.db.close();assert.ok(directory.startsWith(path.resolve(os.tmpdir())+path.sep));fs.rmSync(directory,{recursive:true,force:true});});
   app.store.importRoster(Array.from({length:7},(_,i)=>({grade:1,classNo:12,number:i+1,name:`가상학생${i+1}`})));
   const sender=await app.store.login({grade:1,classNo:12,number:1},'1234');
   const receiver=await app.store.login({grade:1,classNo:12,number:2},'1234');
@@ -46,18 +140,14 @@ test('관리자 미션 교체·감사 메시지 4명·25% 보상·노션 저장 
   assert.equal((await request('/api/gratitude',input)).data.state.progress,25);
   assert.equal((await request('/api/gratitude',{...input,message:'다른 내용으로 바꿔서 제출합니다.'})).status,409);
   assert.equal((await request('/api/gratitude',{...input,requestId:'gratitude-duplicate-01'})).status,409);
-  await app.notionSync.flush();
+
   assert.equal((await request('/api/messages',null,receiver.token)).data.total,0);
-  assert.equal((await request('/api/admin/send-message',{id:first.id},admin)).status,409);
-  notionFails=false;clock+=60001;await app.notionSync.flush();
-  assert.ok(exported.has(first.id));
   const review=(await request('/api/admin/messages',{status:'pending',page:0},admin)).data;
-  assert.equal(review.total,1);assert.ok(review.items[0].notionUrl);assert.equal(review.items[0].body,input.message);
+  assert.equal(review.total,1);assert.equal(review.items[0].notionUrl,undefined);assert.equal(review.items[0].body,input.message);
   assert.equal((await request('/api/admin/send-message',{id:first.id},receiver.token)).status,401);
   assert.equal((await request('/api/admin/send-message',{id:first.id},admin)).status,200);
   assert.equal((await request('/api/admin/send-message',{id:first.id},admin)).status,200);
-  await app.notionSync.flush();
-  assert.deepEqual(delivered,[first.id]);
+
   const inbox=(await request('/api/messages',null,receiver.token)).data;
   assert.equal(inbox.total,1);assert.equal(inbox.items[0].body,input.message);
   assert.equal((await request('/api/messages',null,outsider.token)).data.total,0);
@@ -83,32 +173,10 @@ test('관리자 미션 교체·감사 메시지 4명·25% 보상·노션 저장 
   assert.equal((await request('/api/missions/current')).data.mission.title,'새 특별미션');
   assert.equal((await request('/api/actions',{kind:'special',missionRevision:custom.id,requestId:'custom-stale-00001'})).status,409);
   assert.equal((await request('/api/actions',{kind:'special',missionId:custom.id,missionRevision:custom.revision,requestId:'custom-growth-0001'})).data.state.progress,55);
-  await app.notionSync.flush();
+
   app.store.deleteStudent({grade:1,classNo:12,number:1});
   assert.equal(app.store.db.prepare('SELECT COUNT(*) n FROM gratitude_messages').get().n,0);
   assert.deepEqual(app.store.db.prepare('PRAGMA foreign_key_check').all(),[]);
-});
-
-test('노션 기록 ID 조회로 저장 재시도 중복을 방지하고 전송 상태를 반영한다',async()=>{
-  const requests=[];
-  const row={id:'message-test-id',sender_json:JSON.stringify({grade:1,classNo:1,number:1,name:'가상학생'}),
-    recipient_grade:1,recipient_class:1,recipient_number:2,recipient_name:'다른학생',body:'도와줘서 항상 고맙고 정말 감사해요.',
-    char_count:22,campaign_id:1,created_at:new Date().toISOString()};
-  let existing=false;
-  const client=createNotionClient({token:'test-only-secret',dataSourceId:'test-source'},async(url,options)=>{
-    const body=options.body?JSON.parse(options.body):null;requests.push({url,method:options.method,body});
-    if(url.endsWith('/query'))return {ok:true,json:async()=>({results:existing?[{id:'test-page'}]:[]})};
-    if(options.method==='POST'){existing=true;return {ok:true,json:async()=>({id:'test-page'})};}
-    return {ok:true,json:async()=>({})};
-  });
-  assert.equal(await client.ensurePage(row),'test-page');
-  assert.equal(await client.ensurePage(row),'test-page');
-  assert.equal(requests.filter(request=>request.url.endsWith('/pages')).length,1);
-  const create=requests.find(request=>request.url.endsWith('/pages')).body;
-  assert.equal(create.properties['기록 ID'].rich_text[0].text.content,row.id);
-  assert.equal(create.properties['감사의 말'].rich_text[0].text.content,row.body);
-  await client.markDelivered({...row,notion_page_id:'test-page',delivered_at:row.created_at});
-  assert.equal(requests.at(-1).body.properties['검토 상태'].select.name,'전송 완료');
 });
 
 test('명단 CSV·12반·학생 이름 및 교사 참여, 재로그인과 기록 보존',async t=>{
@@ -205,7 +273,7 @@ test('이전 v2 DB의 학생·PIN·세션·수확을 최신 스키마로 이관�
   assert.equal(state.profile.name,'이관학생');assert.equal(state.progress,50);assert.equal(state.harvestCount,1);
   assert.equal((await app.store.login({grade:1,classNo:12,number:1},'1234')).state.profile.classNo,12);
   assert.equal((await app.store.login({role:'teacher',name:'이관교사'},'4321')).state.profile.role,'teacher');
-  assert.equal(app.store.db.prepare('PRAGMA user_version').get().user_version,4);
+  assert.equal(app.store.db.prepare('PRAGMA user_version').get().user_version,5);
   assert.deepEqual(app.store.db.prepare('PRAGMA foreign_key_check').all(),[]);
 });
 
@@ -377,7 +445,7 @@ test('과목당 하루 한 세트, 기기 채점 요약과 완료 이력·보상
   await new Promise(resolve=>app.server.close(resolve));
   app.store.db.exec('DROP TABLE quiz_runs; DROP TABLE quiz_sets; PRAGMA user_version=1;');app.store.db.close();
   app=createBackend({directory,now:()=>clock});
-  assert.equal(app.store.db.prepare('PRAGMA user_version').get().user_version,4);
+  assert.equal(app.store.db.prepare('PRAGMA user_version').get().user_version,5);
   assert.equal(app.store.snapshot(second).harvestCount,1);
 });
 

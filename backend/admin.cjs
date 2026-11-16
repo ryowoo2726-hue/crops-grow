@@ -17,7 +17,7 @@ function readCredentials() {
   if (!/^[a-f0-9]{32}$/.test(value.salt) || !/^[a-f0-9]{64}$/.test(value.hash)) throw Error('관리자 비밀번호 설정 파일을 확인하세요.');
   return value;
 }
-function createAdmin(store,{credentials,now,notionSync}) {
+function createAdmin(store,{credentials,now}) {
   const sessions=new Map();
   let attempts=0,lockedUntil=0;
   const tokenHash=token=>crypto.createHash('sha256').update(token).digest('hex');
@@ -43,7 +43,7 @@ function createAdmin(store,{credentials,now,notionSync}) {
     }
     authenticate(token);
     if (route==='/api/admin/special' && method==='GET') {
-      reply(200,{mission:store.special(),notion:notionSync.status()}); return;
+      reply(200,{mission:store.special()}); return;
     }
     if (route==='/api/admin/special' && method==='POST') {
       reply(200,{mission:store.specialMissions.activate(input)}); return;
@@ -53,7 +53,6 @@ function createAdmin(store,{credentials,now,notionSync}) {
     }
     if (route==='/api/admin/send-message' && method==='POST') {
       const result=store.specialMissions.deliver(input.id);
-      void notionSync.flush();
       reply(200,result); return;
     }
     if (route==='/api/admin/logout' && method==='POST') { sessions.delete(tokenHash(token)); reply(200,{ok:true}); return; }

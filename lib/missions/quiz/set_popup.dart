@@ -6,13 +6,15 @@ class QuizSetPopup extends StatefulWidget {
   const QuizSetPopup({
     super.key,
     required this.questions,
-    required this.submit,
+    this.submit,
+    this.submitAnswers,
     this.result,
     this.claimed = false,
-  });
+  }) : assert((submit == null) != (submitAnswers == null));
 
   final List<QuizQuestion> questions;
-  final Future<Map<String, dynamic>> Function(int growth) submit;
+  final Future<Map<String, dynamic>> Function(int growth)? submit;
+  final Future<Map<String, dynamic>> Function(List<int> answers)? submitAnswers;
   final Map<String, dynamic>? result;
   final bool claimed;
 
@@ -48,8 +50,16 @@ class _QuizSetPopupState extends State<QuizSetPopup> {
       );
       final growth =
           review.where((answer) => answer['correct'] == true).length * 10;
-      final response = await widget.submit(growth);
-      if (mounted) setState(() => result = {...response, 'answers': review});
+      final response = widget.submitAnswers != null
+          ? await widget.submitAnswers!(answers.cast<int>())
+          : await widget.submit!(growth);
+      if (mounted) {
+        setState(
+          () => result = widget.submitAnswers != null
+              ? response
+              : {...response, 'answers': review},
+        );
+      }
     } catch (failure) {
       if (mounted) setState(() => error = failure.toString());
     } finally {
@@ -60,11 +70,18 @@ class _QuizSetPopupState extends State<QuizSetPopup> {
   @override
   Widget build(BuildContext context) {
     if (widget.questions.length != 10 ||
-        widget.questions.any((q) => !q.isValid || q.correctIndex == null)) {
+        widget.questions.any(
+          (q) =>
+              !q.isValid ||
+              (widget.submitAnswers == null && q.correctIndex == null),
+        )) {
       return const Text('퀴즈 내용을 확인하고 있어요. 잠시 후 다시 열어 주세요.');
     }
     if (result != null) {
       final review = result!['answers'] as List?;
+      final questions = result!['questions'] == null
+          ? widget.questions
+          : parseQuizQuestions(result!['questions']);
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -77,23 +94,31 @@ class _QuizSetPopupState extends State<QuizSetPopup> {
           ),
           const SizedBox(height: 8),
           Text(
-            widget.claimed
+            widget.submitAnswers != null
+                ? '성장 보상 +${result!['growth']}%를 저장했어요.\n남은 영양분은 다음 작물을 심을 때 이어 받아요.'
+                : widget.claimed
                 ? '오늘의 퀴즈를 완료했어요.'
                 : '닫으면 영양분으로 +${result!['growth']}% 성장해요.',
             textAlign: TextAlign.center,
           ),
-          if (!widget.claimed && (result!['growth'] as num) > 0)
+          if (widget.submitAnswers == null &&
+              !widget.claimed &&
+              (result!['growth'] as num) > 0)
             const Text('작물은 최대 100%까지 자라요.', textAlign: TextAlign.center),
           const SizedBox(height: 16),
-          for (var i = 0; i < widget.questions.length; i++)
+          for (var i = 0; i < questions.length; i++)
             _AnswerCard(
-              question: widget.questions[i],
+              question: questions[i],
               number: i + 1,
               answer: review?[i] as Map?,
             ),
           FilledButton(
             onPressed: () => Navigator.pop(context),
-            child: Text(widget.claimed ? '닫기' : '닫고 영양분 받기'),
+            child: Text(
+              widget.claimed || widget.submitAnswers != null
+                  ? '닫기'
+                  : '닫고 영양분 받기',
+            ),
           ),
         ],
       );
@@ -154,7 +179,12 @@ class _QuizSetPopupState extends State<QuizSetPopup> {
           ),
         ),
         const SizedBox(height: 8),
-        const Text('과목별 하루 10문제 · 정답 하나당 성장 +10%', textAlign: TextAlign.center),
+        Text(
+          widget.submitAnswers != null
+              ? '이번 특별 미션 1회 · 정답 하나당 성장 +10%\n제출 후에는 답을 바꿀 수 없어요.'
+              : '과목별 하루 10문제 · 정답 하나당 성장 +10%',
+          textAlign: TextAlign.center,
+        ),
       ],
     );
   }

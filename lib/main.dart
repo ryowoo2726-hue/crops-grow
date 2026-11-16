@@ -16,6 +16,7 @@ import 'missions/quiz/popup.dart';
 import 'missions/quiz/set_popup.dart';
 import 'missions/special/popup.dart';
 import 'missions/special/gratitude.dart';
+import 'missions/special/poster.dart';
 import 'rankings/board.dart';
 import 'missions/quiz/status_stamp.dart';
 import 'storage_stub.dart' if (dart.library.js_interop) 'storage.dart';
@@ -1058,6 +1059,10 @@ class _FarmGameState extends State<FarmGame>
       await gratitudeMission(data);
       return;
     }
+    if ((data['mission'] as Map?)?['poster'] != null) {
+      await commemorativeMission(Map<String, dynamic>.from(data['mission']));
+      return;
+    }
     final eligible = cropReady && canGrow(r, 'mission');
     final mission = data['mission'] is Map
         ? Map<String, String>.from(
@@ -1078,6 +1083,50 @@ class _FarmGameState extends State<FarmGame>
         missionRevision: revision,
         missionId: (data['mission'] as Map?)?['id'] as int?,
       );
+  }
+
+  Future<void> commemorativeMission(Map<String, dynamic> mission) async {
+    final session = backend.token;
+    final start = await popup<bool>(
+      '특별 미션',
+      (_, _) => CommemorativePoster(mission: mission),
+    );
+    if (start != true || !mounted || record == null || backend.token != session)
+      return;
+    Map<String, dynamic> quiz;
+    setState(() => busy = true);
+    try {
+      quiz = await backend.call(
+        'GET',
+        '/api/special-quiz?missionId=${mission['id']}',
+      );
+    } catch (error) {
+      remoteError(error);
+      return;
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+    if (!mounted || record == null || backend.token != session) return;
+    await popup<void>(
+      '${mission['title']} 퀴즈',
+      (_, _) => QuizSetPopup(
+        questions: parseQuizQuestions(quiz['questions']),
+        result: quiz['result'] as Map<String, dynamic>?,
+        submitAnswers: (answers) async {
+          final response = await backend.call(
+            'POST',
+            '/api/special-quiz/submit',
+            {'missionId': mission['id'], 'answers': answers},
+          );
+          if (!mounted || record == null || backend.token != session) {
+            throw const ApiException('다시 입장해 주세요.', 401);
+          }
+          // 제출 중 창을 닫아도 서버에서 확정한 보상을 현재 화면에 반영합니다.
+          applyRemoteState(response['state']);
+          return response['result'] as Map<String, dynamic>;
+        },
+      ),
+    );
   }
 
   Future<void> gratitudeMission(Map<String, dynamic> data) async {

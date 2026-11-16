@@ -71,8 +71,9 @@ CREATE INDEX IF NOT EXISTS quiz_runs_history ON quiz_runs(player_id, set_id);
 CREATE TABLE IF NOT EXISTS special_campaigns (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   request_id TEXT NOT NULL UNIQUE,
-  kind TEXT NOT NULL CHECK(kind IN ('gratitude','custom','off')),
-  title TEXT NOT NULL, description TEXT NOT NULL, created_at TEXT NOT NULL
+  kind TEXT NOT NULL CHECK(kind IN ('gratitude','patriots','farmers','custom','off')),
+  title TEXT NOT NULL, description TEXT NOT NULL, created_at TEXT NOT NULL,
+  content_json TEXT
 ) STRICT;
 CREATE TABLE IF NOT EXISTS gratitude_messages (
   id TEXT PRIMARY KEY,
@@ -92,4 +93,12 @@ CREATE TABLE IF NOT EXISTS gratitude_messages (
 ) STRICT;
 CREATE INDEX IF NOT EXISTS gratitude_inbox ON gratitude_messages(recipient_grade,recipient_class,recipient_number,delivered_at);
 CREATE INDEX IF NOT EXISTS gratitude_sender ON gratitude_messages(player_id,campaign_id);
-PRAGMA user_version = 4;
+CREATE TABLE IF NOT EXISTS special_quiz_results (
+  campaign_id INTEGER NOT NULL REFERENCES special_campaigns(id),
+  player_id INTEGER NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+  result_json TEXT NOT NULL,
+  reward_remaining INTEGER NOT NULL CHECK(reward_remaining BETWEEN 0 AND 100),
+  created_at TEXT NOT NULL,
+  PRIMARY KEY(campaign_id,player_id)
+) STRICT;
+PRAGMA user_version = 5;

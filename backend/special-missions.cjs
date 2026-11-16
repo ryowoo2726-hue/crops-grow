@@ -1,4 +1,5 @@
 const crypto = require('node:crypto');
+const commemorations = require('./commemorative-missions.cjs');
 const segmenter = new Intl.Segmenter('ko', {granularity:'grapheme'});
 const gratitudeTitle = '감사의 말 전하기';
 const gratitudeDescription = '고마운 학생의 학년·반·번호를 고르고 감사의 말을 10글자 이상 작성해 주세요. 서로 다른 4명까지, 한 명당 성장도 25%를 받아요. 선생님이 확인한 뒤 메시지를 전달해요.';
@@ -9,39 +10,45 @@ function createSpecialMissions(db, {now, fail, profileOf}) {
     const selected = latest();
     if (!selected) return legacy;
     if (selected.kind === 'off') return null;
-    return {id:selected.id,kind:selected.kind,title:selected.title,description:selected.description,revision:selected.id};
+    const content = selected.content_json ? JSON.parse(selected.content_json) : null;
+    return {id:selected.id,kind:selected.kind,title:selected.title,description:selected.description,revision:selected.id,
+      ...(content ? {poster:content.poster} : {})};
   }
   function activate(input) {
-    if (!['gratitude','custom','off'].includes(input.kind) || typeof input.requestId !== 'string' ||
+    if (!['gratitude','patriots','farmers','custom','off'].includes(input.kind) || typeof input.requestId !== 'string' ||
         !/^[a-zA-Z0-9_-]{16,100}$/.test(input.requestId)) fail(400,'미션 종류와 요청 번호를 확인하세요.');
     if ((input.title != null && typeof input.title !== 'string') || (input.description != null && typeof input.description !== 'string'))
       fail(400,'미션 제목과 내용을 확인하세요.');
-    const title = input.kind === 'gratitude' ? gratitudeTitle : (input.title ?? '').trim();
-    const description = input.kind === 'gratitude' ? gratitudeDescription : (input.description ?? '').trim();
+    const preset = commemorations[input.kind];
+    const title = preset?.title ?? (input.kind === 'gratitude' ? gratitudeTitle : (input.title ?? '').trim());
+    const description = preset?.description ?? (input.kind === 'gratitude' ? gratitudeDescription : (input.description ?? '').trim());
     if (input.kind === 'custom' && (!title || title.length > 60 || !description || description.length > 600))
       fail(400,'미션 제목 1~60자와 내용 1~600자를 입력하세요.');
     const old = db.prepare('SELECT * FROM special_campaigns WHERE request_id=?').get(input.requestId);
     if (old && (old.kind !== input.kind || old.title !== title || old.description !== description))
       fail(409,'같은 요청 번호를 다른 미션에 사용할 수 없습니다.');
-    if (!old) db.prepare('INSERT INTO special_campaigns(request_id,kind,title,description,created_at) VALUES(?,?,?,?,?)')
-      .run(input.requestId,input.kind,title,description,new Date(now()).toISOString());
+    if (!old) db.prepare('INSERT INTO special_campaigns(request_id,kind,title,description,created_at,content_json) VALUES(?,?,?,?,?,?)')
+      .run(input.requestId,input.kind,title,description,new Date(now()).toISOString(),preset ? JSON.stringify(preset) : null);
     return current();
   }
   function pendingGrowth(playerId) {
-    return db.prepare('SELECT COALESCE(SUM(reward_remaining),0) growth FROM gratitude_messages WHERE player_id=?').get(playerId).growth;
+    return ['gratitude_messages','special_quiz_results'].reduce((total,table) =>
+      total + db.prepare(`SELECT COALESCE(SUM(reward_remaining),0) growth FROM ${table} WHERE player_id=?`).get(playerId).growth,0);
   }
   // 남은 영양분은 다음 작물을 심을 때 이어서 지급합니다.
   function claimGrowth(playerId) {
     const player = db.prepare('SELECT crop_id,progress FROM players WHERE id=?').get(playerId);
     let capacity = player.crop_id ? 100 - player.progress : 0;
     let growth = 0;
-    const pending = db.prepare('SELECT id,reward_remaining FROM gratitude_messages WHERE player_id=? AND reward_remaining>0 ORDER BY created_at,id').all(playerId);
-    for (const message of pending) {
-      const amount = Math.min(capacity,message.reward_remaining);
-      if (!amount) break;
-      db.prepare('UPDATE gratitude_messages SET reward_remaining=reward_remaining-? WHERE id=?').run(amount,message.id);
-      capacity -= amount;
-      growth += amount;
+    for (const [table,key] of [['gratitude_messages','id'],['special_quiz_results','campaign_id']]) {
+      const pending = db.prepare(`SELECT ${key} id,reward_remaining FROM ${table} WHERE player_id=? AND reward_remaining>0 ORDER BY created_at,${key}`).all(playerId);
+      for (const message of pending) {
+        const amount = Math.min(capacity,message.reward_remaining);
+        if (!amount) break;
+        db.prepare(`UPDATE ${table} SET reward_remaining=reward_remaining-? WHERE ${key}=? AND player_id=?`).run(amount,message.id,playerId);
+        capacity -= amount;
+        growth += amount;
+      }
     }
     if (growth) db.prepare('UPDATE players SET progress=progress+?,revision=revision+1 WHERE id=?').run(growth,playerId);
     return growth;
@@ -50,6 +57,35 @@ function createSpecialMissions(db, {now, fail, profileOf}) {
     const items = campaignId ? db.prepare(`SELECT recipient_grade grade,recipient_class classNo,recipient_number number,
       recipient_name name FROM gratitude_messages WHERE player_id=? AND campaign_id=? ORDER BY created_at,id`).all(playerId,campaignId) : [];
     return {submitted:items,remaining:Math.max(0,4-items.length),pendingGrowth:pendingGrowth(playerId)};
+  }
+  function quiz(playerId, missionId) {
+    if (!Number.isSafeInteger(missionId)) fail(400,'미션 번호를 확인해 주세요.');
+    const mission = latest();
+    if (!mission || mission.id !== missionId || !mission.content_json) fail(409,'특별 미션이 바뀌었어요. 다시 열어 주세요.');
+    const content = JSON.parse(mission.content_json);
+    const saved = db.prepare('SELECT result_json FROM special_quiz_results WHERE campaign_id=? AND player_id=?').get(missionId,playerId);
+    return {questions:content.questions.map((q,id)=>({id,question:q.question,choices:q.choices})),
+      result:saved ? JSON.parse(saved.result_json) : null};
+  }
+  function submitQuiz(playerId, input) {
+    if (!Number.isSafeInteger(input.missionId) || !Array.isArray(input.answers) || input.answers.length !== 10 ||
+        input.answers.some(answer=>!Number.isInteger(answer) || answer<0 || answer>3)) fail(400,'10문제의 답을 모두 선택해 주세요.');
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      // 응답이 유실되어 다시 제출해도 최초 결과와 보상은 한 번만 확정합니다.
+      const saved = db.prepare('SELECT result_json FROM special_quiz_results WHERE campaign_id=? AND player_id=?').get(input.missionId,playerId);
+      if (saved) { db.exec('COMMIT'); return {result:JSON.parse(saved.result_json)}; }
+      quiz(playerId,input.missionId);
+      const questions = JSON.parse(latest().content_json).questions;
+      const answers = questions.map((q,i)=>({selected:input.answers[i],correct:input.answers[i]===q.correctIndex}));
+      const correctCount = answers.filter(answer=>answer.correct).length;
+      const result = {correctCount,growth:correctCount*10,answers,questions:questions.map((q,id)=>({id,...q}))};
+      db.prepare('INSERT INTO special_quiz_results(campaign_id,player_id,result_json,reward_remaining,created_at) VALUES(?,?,?,?,?)')
+        .run(input.missionId,playerId,JSON.stringify(result),result.growth,new Date(now()).toISOString());
+      claimGrowth(playerId);
+      db.exec('COMMIT');
+      return {result};
+    } catch (error) { db.exec('ROLLBACK'); throw error; }
   }
   function submit(playerId, input) {
     const recipient = input.recipient;
@@ -116,7 +152,6 @@ function createSpecialMissions(db, {now, fail, profileOf}) {
       id:row.id,missionId:row.campaign_id,sender:JSON.parse(row.sender_json),
       recipient:{grade:row.recipient_grade,classNo:row.recipient_class,number:row.recipient_number,name:row.recipient_name},
       body:row.body,createdAt:row.created_at,deliveredAt:row.delivered_at,
-      notionUrl:row.notion_page_id ? 'https://www.notion.so/'+row.notion_page_id.replaceAll('-','') : null,
     }));
     return {items,page,pages,total};
   }
@@ -124,10 +159,9 @@ function createSpecialMissions(db, {now, fail, profileOf}) {
     if (typeof id !== 'string') fail(400,'전송할 메시지를 선택하세요.');
     const message = db.prepare('SELECT * FROM gratitude_messages WHERE id=?').get(id);
     if (!message) fail(404,'메시지를 찾을 수 없습니다.');
-    if (!message.notion_page_id) fail(409,'노션 저장 완료 후 전송할 수 있습니다.');
-    db.prepare("UPDATE gratitude_messages SET delivered_at=?,sync_after=0 WHERE id=? AND delivered_at=''").run(new Date(now()).toISOString(),id);
+    db.prepare("UPDATE gratitude_messages SET delivered_at=? WHERE id=? AND delivered_at=''").run(new Date(now()).toISOString(),id);
     return {ok:true};
   }
-  return {current,activate,status,submit,inbox,review,deliver,claimGrowth,pendingGrowth};
+  return {current,activate,status,submit,inbox,review,deliver,claimGrowth,pendingGrowth,quiz,submitQuiz};
 }
 module.exports = {createSpecialMissions};

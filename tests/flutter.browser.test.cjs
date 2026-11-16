@@ -10,10 +10,7 @@ const {hashPassword} = require('../backend/admin.cjs');
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 (async () => {
   const dataDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'growgame-browser-db-'));
-  const app = createBackend({directory: dataDirectory,adminCredentials:await hashPassword('6815'),notionClient:{
-    ensurePage:async row=>'11111111-1111-1111-1111-'+row.id.slice(-12),
-    markDelivered:async()=>{},reviewPageUrl:'https://www.notion.so/test-review',
-  }});
+  const app = createBackend({directory: dataDirectory,adminCredentials:await hashPassword('6815')});
   app.store.importRoster([
     {grade:3,classNo:10,number:24,name:'가상학생'},
     {grade:3,classNo:12,number:30,name:'명단학생'},
@@ -315,9 +312,9 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     await clickText('검토받기 +25%');
     await wait("document.querySelector('flt-semantics-host')?.textContent.includes('75 / 100%')");
     await sleep(1900);
-    await app.notionSync.flush();
-    const savedMessage=app.store.db.prepare('SELECT id,notion_page_id FROM gratitude_messages WHERE campaign_id=?').get(gratitude.id);
-    assert.ok(savedMessage.notion_page_id,'메시지가 노션 검토함에 저장됨');
+
+    const savedMessage=app.store.db.prepare('SELECT id FROM gratitude_messages WHERE campaign_id=?').get(gratitude.id);
+    assert.ok(savedMessage.id,'메시지가 SQLite에 저장됨');
     assert.equal(app.store.specialMissions.inbox(1,0).total,0,'관리자 전송 전에는 학생에게 메시지가 도착하지 않음');
     const adminResponse=await fetch(`http://127.0.0.1:${apiPort}/api/admin/session`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:'6815'})});
     const adminToken=(await adminResponse.json()).token;
@@ -331,8 +328,43 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     const inboxShot=await send('Page.captureScreenshot');
     fs.writeFileSync(path.join(os.tmpdir(),'growgame-gratitude-inbox.png'),Buffer.from(inboxShot.data,'base64'));
     await clickText('닫기');
+    for(const kind of ['patriots','farmers']){
+      const mission=app.store.specialMissions.activate({kind,requestId:'browser-commemoration-'+kind});
+      const questions=JSON.parse(app.store.db.prepare('SELECT content_json FROM special_campaigns WHERE id=?').get(mission.id).content_json).questions;
+      for(const [width,height] of [[390,844],[320,568],[1920,1080]]){
+        await send('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:width<600});
+        await sleep(350);
+        await clickText('미션');await clickText('특별 미션');
+        await wait(`document.querySelector('flt-semantics-host')?.textContent.includes('${mission.poster.eyebrow}')`);
+        const shot=await send('Page.captureScreenshot');
+        fs.writeFileSync(path.join(os.tmpdir(),`growgame-${kind}-poster-${width}.png`),Buffer.from(shot.data,'base64'));
+        await clickText('닫기');
+      }
+      await send('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
+      await sleep(350);await clickText('미션');await clickText('특별 미션');
+      const startVisible=`(()=>{const e=[...document.querySelectorAll('flt-semantics[role="button"][flt-tappable]')].find(e=>(e.getAttribute('aria-label')||e.textContent).includes('문제 풀기'));if(!e)return false;const r=e.getBoundingClientRect();return r.y>60&&r.bottom<innerHeight-30;})()`;
+      for(let n=0;n<30&&!(await run(startVisible));n++){
+        await send('Input.dispatchMouseEvent',{type:'mouseWheel',x:195,y:550,deltaX:0,deltaY:400});await sleep(200);
+      }
+      await wait(startVisible);
+      const readingShot=await send('Page.captureScreenshot');
+      fs.writeFileSync(path.join(os.tmpdir(),`growgame-${kind}-reading.png`),Buffer.from(readingShot.data,'base64'));
+      await clickText('문제 풀기');
+      await wait("document.querySelector('flt-semantics-host')?.textContent.includes('1 / 10')");
+      for(let i=0;i<10;i++){
+        await clickText(questions[i].choices[i<7?questions[i].correctIndex:(questions[i].correctIndex+1)%4]);
+        if(i===0){const shot=await send('Page.captureScreenshot');fs.writeFileSync(path.join(os.tmpdir(),`growgame-${kind}-quiz.png`),Buffer.from(shot.data,'base64'));}
+        await clickText(i===9?'채점하고 정답 보기':'다음 문제');
+      }
+      await wait("document.querySelector('flt-semantics-host')?.textContent.includes('10문제 중 7문제 정답')");
+      const resultShot=await send('Page.captureScreenshot');
+      fs.writeFileSync(path.join(os.tmpdir(),`growgame-${kind}-result.png`),Buffer.from(resultShot.data,'base64'));
+      const result=app.store.db.prepare('SELECT result_json FROM special_quiz_results WHERE campaign_id=?').get(mission.id);
+      assert.equal(JSON.parse(result.result_json).growth,70);
+      await clickText('닫기');
+    }
     assert.equal(errors.length, 0, JSON.stringify(errors));
-    console.log('Flutter Chrome 통과: 명단·12반·학생 이름 → 퀴즈·성장·수확·랭킹·복구 → 교사 이름 참여·재로그인 · 3가지 화면');
+    console.log('Flutter Chrome 통과: 명단·교사·퀴즈·성장·수확·랭킹·복구·DB 메시지 전송·기념일 2종 포스터와 10문항·3가지 화면');
   } finally {
     socket?.close(); proc.kill();
     if(app.server.listening) await stopApi();

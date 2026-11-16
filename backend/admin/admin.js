@@ -62,14 +62,11 @@ async function loadSpecial(){
   const session=token,data=await api('special');
   if(!token||token!==session)return;
   $('active-special').textContent=data.mission?`현재 적용 중 · ${data.mission.title}${data.mission.id?' · 미션 '+data.mission.id:''}`:'현재 적용된 특별미션이 없습니다.';
-  $('notion-status').textContent=!data.notion.configured?'노션 연결 설정이 필요합니다.':data.notion.error?'노션 저장을 재시도하고 있습니다. 연결과 페이지 권한을 확인하세요.':data.notion.pending?`노션 반영 대기 ${data.notion.pending}건`:'노션 저장이 완료되었습니다.';
-  $('notion-review').hidden=!data.notion.reviewPageUrl;
-  if(data.notion.reviewPageUrl)$('notion-review').href=data.notion.reviewPageUrl;
 }
 $('special-kind').onchange=()=>{
   activationRequest=null;
   $('custom-special').hidden=$('special-kind').value!=='custom';
-  $('special-help').textContent=$('special-kind').value==='gratitude'?'학생의 학년·반·번호를 골라 10글자 이상의 감사 메시지를 작성합니다. 서로 다른 4명까지 작성하며 한 명당 성장도 25%를 받습니다.':$('special-kind').value==='custom'?'제목과 내용을 입력하면 학생에게 바로 표시됩니다. 완료한 학생에게 성장도 30%를 지급합니다.':'적용하면 학생의 특별미션이 종료됩니다.';
+  $('special-help').textContent={gratitude:'학생의 학년·반·번호를 골라 10글자 이상의 감사 메시지를 작성합니다. 서로 다른 4명까지 작성하며 한 명당 성장도 25%를 받습니다.',patriots:'11월 17일 순국선열의 날 포스터를 읽고 10문제를 풉니다. 정답당 10%, 최대 100%를 한 번 지급하며 남은 영양분은 다음 작물로 이어집니다.',farmers:'11월 11일 농업인의 날 포스터를 읽고 10문제를 풉니다. 정답당 10%, 최대 100%를 한 번 지급하며 남은 영양분은 다음 작물로 이어집니다.',custom:'제목과 내용을 입력하면 학생에게 바로 표시됩니다. 완료한 학생에게 성장도 30%를 지급합니다.',off:'적용하면 학생의 특별미션이 종료됩니다.'}[$('special-kind').value];
 };
 for(const id of ['special-title','special-description'])$(id).oninput=()=>{activationRequest=null;};
 $('special-form').onsubmit=async event=>{
@@ -92,10 +89,8 @@ async function loadMessages(page){
     const date=document.createElement('p');date.textContent=new Date(item.createdAt).toLocaleString('ko-KR',{timeZone:'Asia/Seoul'})+' · 미션 '+item.missionId;
     const body=document.createElement('p');body.className='message-body';body.textContent=item.body;
     const actions=document.createElement('div');actions.className='message-actions';
-    if(item.notionUrl){const link=document.createElement('a');link.href=item.notionUrl;link.target='_blank';link.rel='noopener noreferrer';link.textContent='노션에서 확인';actions.append(link);}
-    else {const pending=document.createElement('span');pending.textContent='노션 저장 대기';actions.append(pending);}
-    const send=document.createElement('button');send.textContent=item.deliveredAt?'전송 완료':'전송';send.disabled=!!item.deliveredAt||!item.notionUrl;
-    send.onclick=async()=>{send.disabled=true;try{await api('send-message',{id:item.id});await Promise.all([loadMessages(messagePage),loadSpecial()]);$('message').textContent='학생에게 메시지를 전송했습니다.';}catch(error){showError(error);send.disabled=false;}};
+    const send=document.createElement('button');send.textContent=item.deliveredAt?'전송 완료':'전송';send.disabled=!!item.deliveredAt;
+    send.onclick=async()=>{send.disabled=true;send.textContent='전송 중…';send.setAttribute('aria-busy','true');try{await api('send-message',{id:item.id});await loadMessages(messagePage);$('message').textContent='학생에게 메시지를 전송했습니다.';}catch(error){showError(error);send.disabled=false;send.textContent='전송';}finally{send.removeAttribute('aria-busy');}};
     actions.append(send);card.append(title,date,body,actions);$('review-messages').append(card);
   }
   $('message-page').textContent=`${messagePage+1} / ${messagePages}`;
