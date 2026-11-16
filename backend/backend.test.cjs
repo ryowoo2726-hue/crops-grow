@@ -6,6 +6,105 @@ const path=require('node:path');
 const {backup}=require('node:sqlite');
 const {createBackend}=require('./server.cjs');
 const {hashPassword}=require('./admin.cjs');
+const {parseRoster}=require('./roster.cjs');
+
+test('명단 CSV·12반·학생 이름 및 교사 참여, 재로그인과 기록 보존',async t=>{
+  const directory=fs.mkdtempSync(path.join(os.tmpdir(),'growgame-roster-'));
+  const rosterFile=path.join(directory,'students.csv');
+  const csv='\uFEFF"학년","반","번호","성명","비고"\r\n1,12,1,"가상학생","쉼표, 메모\n두 줄"\r\n1,12,3,"다른학생","따옴표 ""메모"""\r\n';
+  assert.equal(parseRoster(csv).length,2);
+  assert.throws(()=>parseRoster(csv+'1,12,1,중복,\n'),/중복/);
+  assert.throws(()=>parseRoster('학년,반,번호,성명\n1,12,1,"닫히지 않음'),/따옴표/);
+  assert.throws(()=>parseRoster('학년,반,번호,성명\n1,12,1,\n'),/성명/);
+  fs.writeFileSync(rosterFile,csv);
+  let app=createBackend({directory,rosterFile});
+  await new Promise(resolve=>app.server.listen(0,'127.0.0.1',resolve));
+  t.after(async()=>{
+    if(app.server.listening) await new Promise(resolve=>app.server.close(resolve));
+    app.store.db.close();
+    assert.ok(directory.startsWith(path.resolve(os.tmpdir())+path.sep));fs.rmSync(directory,{recursive:true,force:true});
+  });
+  const base=`http://127.0.0.1:${app.server.address().port}`;
+  const options=await fetch(base+'/api/login-options');
+  assert.equal(options.headers.get('cache-control'),'no-store');
+  assert.deepEqual(await options.json(),{classes:[{grade:1,classNo:12,numbers:[1,3]}]});
+  const profile={grade:1,classNo:12,number:1};
+  const student=await app.store.login({...profile,name:'임의 이름'},'1234');
+  assert.deepEqual(student.state.profile,{role:'student',...profile,name:'가상학생'});
+  for(const invalid of [{...profile,number:2},{...profile,classNo:11}])
+    await assert.rejects(app.store.login(invalid,'1234'),e=>e.status===400);
+  const teacherProfile={role:'teacher',name:' 가상교사 '};
+  const teacherResults=await Promise.all(Array.from({length:4},()=>app.store.login(teacherProfile,'4321')));
+  const teacher=teacherResults[0],id=app.store.authenticate(teacher.token);
+  assert.ok(teacherResults.every(session=>app.store.authenticate(session.token)===id));
+  assert.deepEqual(teacher.state.profile,{role:'teacher',name:'가상교사'});
+  await assert.rejects(app.store.login(teacherProfile,'1111'),e=>e.status===401);
+  for(const invalid of [{role:'teacher',name:' '},{role:'teacher',name:'가'.repeat(51)},{role:'teacher',name:'가\n나'},{role:'other'}])
+    await assert.rejects(app.store.login(invalid,'1234'),e=>e.status===400);
+  await app.store.login({role:'teacher',name:'다른교사'},'5678');
+  app.store.action(id,{kind:'water',requestId:'teacher-water-0001'});
+  app.store.action(id,{kind:'water',requestId:'teacher-water-0002'});
+  app.store.action(id,{kind:'harvest',requestId:'teacher-harvest-0001'});
+  app.store.action(id,{kind:'harvest',requestId:'teacher-harvest-0001'});
+  const individual=app.store.rankings(id,'individual',0);
+  assert.deepEqual(individual.items[0],{role:'teacher',name:'가상교사',rank:1,harvestCount:1,isSelf:true});
+  assert.equal(individual.summary.class,null);
+  const classes=app.store.rankings(id,'class',0);
+  assert.equal(classes.total,1);assert.equal(classes.items[0].harvestCount,0);
+  assert.equal(classes.items[0].studentCount,1);assert.equal(classes.items[0].isSelf,false);
+  assert.equal(app.store.rankings(app.store.authenticate(student.token),'individual',0).summary.individual.rank,2);
+  const response=await fetch(base+'/api/session',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({profile:teacherProfile,pin:'4321'})});
+  assert.equal(response.status,200);assert.equal((await response.json()).state.harvestCount,1);
+  app.store.quizBank.importSets({sets:[{id:'teacher-quiz',subject:'영어',title:'교사 문제',questions:Array.from({length:10},(_,i)=>({question:`교사 문제 ${i}`,choices:['A','B','C','D'],correctIndex:0}))}]});
+  app.store.action(id,{kind:'plant',cropId:'apple',requestId:'teacher-plant-0001'});
+  const run=app.store.quizBank.start(id,{subject:'영어'});
+  app.store.quizBank.submit(id,{runId:run.id,growth:30});
+  assert.equal(app.store.action(id,{kind:'quiz-set',runId:run.id,requestId:'teacher-quiz-00001'}).state.progress,30);
+  fs.writeFileSync(rosterFile,csv.replace('가상학생','변경학생'));
+  await fetch(base+'/api/login-options');
+  assert.equal(app.store.snapshot(app.store.authenticate(student.token)).profile.name,'변경학생');
+  fs.writeFileSync(rosterFile,'잘못된 CSV');
+  assert.equal((await fetch(base+'/api/login-options')).status,200);
+  assert.equal(app.store.db.prepare('SELECT COUNT(*) n FROM student_roster').get().n,2);
+  await new Promise(resolve=>app.server.close(resolve));app.store.db.close();
+  app=createBackend({directory,rosterFile});
+  assert.equal((await app.store.login(profile,'1234')).state.profile.name,'변경학생');
+  const restored=await app.store.login({role:'teacher',name:'가상교사'},'4321');
+  assert.equal(restored.state.harvestCount,1);assert.equal(restored.state.progress,30);
+  assert.deepEqual(app.store.db.prepare('PRAGMA foreign_key_check').all(),[]);
+});
+
+test('이전 v2 DB의 학생·PIN·세션·수확을 v3로 이관한다',async t=>{
+  const directory=fs.mkdtempSync(path.join(os.tmpdir(),'growgame-migrate-v3-'));
+  const {DatabaseSync}=require('node:sqlite');
+  const legacy=new DatabaseSync(path.join(directory,'growgame.sqlite'));
+  legacy.exec(`CREATE TABLE players (
+    id INTEGER PRIMARY KEY,grade INTEGER NOT NULL CHECK(grade BETWEEN 1 AND 3),
+    class_no INTEGER NOT NULL CHECK(class_no BETWEEN 1 AND 10),number INTEGER NOT NULL CHECK(number BETWEEN 1 AND 30),
+    pin_salt TEXT NOT NULL,pin_hash TEXT NOT NULL,failed_attempts INTEGER NOT NULL DEFAULT 0,locked_until INTEGER NOT NULL DEFAULT 0,
+    crop_id TEXT DEFAULT 'rice',progress INTEGER NOT NULL DEFAULT 0,water_day TEXT NOT NULL DEFAULT '',mission_day TEXT NOT NULL DEFAULT '',
+    revision INTEGER NOT NULL DEFAULT 0,UNIQUE(grade,class_no,number)) STRICT;
+    CREATE TABLE sessions(token_hash TEXT PRIMARY KEY,player_id INTEGER NOT NULL REFERENCES players(id),expires_at INTEGER NOT NULL) STRICT;
+    CREATE TABLE harvests(id INTEGER PRIMARY KEY,player_id INTEGER NOT NULL REFERENCES players(id),crop_id TEXT NOT NULL,created_at TEXT NOT NULL) STRICT;
+    PRAGMA user_version=2;`);
+  const crypto=require('node:crypto'),salt=crypto.randomBytes(16).toString('hex');
+  const hash=crypto.scryptSync('1234',salt,32).toString('hex');
+  legacy.prepare('INSERT INTO players(id,grade,class_no,number,pin_salt,pin_hash,progress) VALUES(7,1,1,1,?,?,50)').run(salt,hash);
+  legacy.prepare('INSERT INTO harvests VALUES(9,7,?,?)').run('apple',new Date().toISOString());
+  const token='legacy-session';
+  legacy.prepare('INSERT INTO sessions VALUES(?,7,?)').run(crypto.createHash('sha256').update(token).digest('hex'),Date.now()+3600000);
+  legacy.close();
+  const app=createBackend({directory});
+  t.after(()=>{app.store.db.close();assert.ok(directory.startsWith(path.resolve(os.tmpdir())+path.sep));fs.rmSync(directory,{recursive:true,force:true});});
+  assert.equal(app.store.authenticate(token),7);
+  app.store.importRoster(parseRoster('학년,반,번호,성명\n1,1,1,이관학생\n1,12,1,신규학생'));
+  const state=(await app.store.login({grade:1,classNo:1,number:1},'1234')).state;
+  assert.equal(state.profile.name,'이관학생');assert.equal(state.progress,50);assert.equal(state.harvestCount,1);
+  assert.equal((await app.store.login({grade:1,classNo:12,number:1},'1234')).state.profile.classNo,12);
+  assert.equal((await app.store.login({role:'teacher',name:'이관교사'},'4321')).state.profile.role,'teacher');
+  assert.equal(app.store.db.prepare('PRAGMA user_version').get().user_version,3);
+  assert.deepEqual(app.store.db.prepare('PRAGMA foreign_key_check').all(),[]);
+});
 
 test('수확 랭킹: 개인·반 공동 순위, 내 순위 고정 요약, 페이지, 수확·삭제 반영',async t=>{
   const directory=fs.mkdtempSync(path.join(os.tmpdir(),'growgame-rankings-'));
@@ -175,7 +274,7 @@ test('과목당 하루 한 세트, 기기 채점 요약과 완료 이력·보상
   await new Promise(resolve=>app.server.close(resolve));
   app.store.db.exec('DROP TABLE quiz_runs; DROP TABLE quiz_sets; PRAGMA user_version=1;');app.store.db.close();
   app=createBackend({directory,now:()=>clock});
-  assert.equal(app.store.db.prepare('PRAGMA user_version').get().user_version,2);
+  assert.equal(app.store.db.prepare('PRAGMA user_version').get().user_version,3);
   assert.equal(app.store.snapshot(second).harvestCount,1);
 });
 
@@ -258,7 +357,7 @@ test('관리자 학생 삭제: 권한, 전체 기록 정리, 롤백, 재등록�
   assert.equal((await request(route,{token:student.token,body:{profile}})).status,401);
   const token=(await request('/api/admin/session',{body:{password:'8642'}})).data.token;
   assert.equal((await request(route,{token,body:{profile},origin:'https://untrusted.example'})).status,403);
-  for(const invalid of [null,{}, {...profile,number:0}, {...profile,grade:'1'}, {...profile,classNo:11}])
+  for(const invalid of [null,{}, {...profile,number:0}, {...profile,grade:'1'}, {...profile,classNo:100}])
     assert.equal((await request(route,{token,body:{profile:invalid}})).status,400);
   assert.equal((await request(route,{token,body:{profile:{...profile,number:30}}})).status,404);
   const tables=['sessions','harvests','quiz_answers','action_receipts'];

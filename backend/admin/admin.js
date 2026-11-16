@@ -2,7 +2,7 @@
 const $=id=>document.getElementById(id);
 const crops={'rice':'벼','sweet-potato':'고구마','soybean':'콩','radish':'무','napa-cabbage':'배추','apple':'사과','persimmon':'감','peach':'복숭아','watermelon':'수박','chili-pepper':'고추','mango':'망고'};
 let token='',students=[],selected=null,deleting=null,sessionTimer;
-for(let n=1;n<=10;n++) $('class-no').add(new Option(`${n}반`,String(n)));
+for(let n=1;n<=12;n++) $('class-no').add(new Option(`${n}반`,String(n)));
 function signedOut(){clearTimeout(sessionTimer);token='';students=[];selected=null;deleting=null;$('students').replaceChildren();$('dashboard').hidden=true;$('logout').hidden=true;$('login').hidden=false;for(const id of ['pin-dialog','delete-dialog'])if($(id).open)$(id).close();}
 async function api(route,body){
   const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),12000);

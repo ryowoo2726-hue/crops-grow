@@ -31,12 +31,34 @@ Map<String, dynamic> freshRecord(Map<String, dynamic> profile) => {
   'missionDay': '',
 };
 
-bool validProfile(dynamic p) =>
-    p is Map &&
-    p['grade'] is int &&
-    p['grade'] >= 1 &&
-    p['grade'] <= 3 &&
-    ['classNo', 'number'].every((k) => p[k] is int && p[k] >= 1 && p[k] <= 99);
+bool validProfile(dynamic p) {
+  if (p is! Map || !['student', 'teacher'].contains(p['role'] ?? 'student')) {
+    return false;
+  }
+  if (p['name'] != null && (p['name'] is! String || p['name'].length > 50)) {
+    return false;
+  }
+  if (p['role'] == 'teacher') {
+    return p['name'] is String && (p['name'] as String).trim().isNotEmpty;
+  }
+  return p['grade'] is int &&
+      p['grade'] >= 1 &&
+      p['grade'] <= 3 &&
+      [
+        'classNo',
+        'number',
+      ].every((k) => p[k] is int && p[k] >= 1 && p[k] <= 99);
+}
+
+String profileKey(Map profile) => profile['role'] == 'teacher'
+    ? 'teacher-${profile['name']}'
+    : '${profile['grade']}-${profile['classNo']}-${profile['number']}';
+
+String profileDisplayLabel(Map profile) {
+  final name = (profile['name'] as String?)?.trim() ?? '';
+  if (profile['role'] == 'teacher') return '$name 선생님';
+  return '${profile['grade']}학년 ${profile['classNo']}반 ${name.isEmpty ? '${profile['number']}번' : name}';
+}
 
 List<Map<String, dynamic>> decodeRecords(String? raw) {
   if (raw == null) return [];
@@ -72,7 +94,7 @@ List<Map<String, dynamic>> decodeRecords(String? raw) {
       }
     }
     final p = r['profile'];
-    if (!profiles.add('${p['grade']}-${p['classNo']}-${p['number']}')) {
+    if (!profiles.add(profileKey(p))) {
       throw const FormatException('중복 참여 기록');
     }
     result.add(Map<String, dynamic>.from(r));
@@ -109,6 +131,7 @@ Map<String, dynamic> localRankings(
   ];
   final classes = <String, Map<String, dynamic>>{};
   for (final item in individuals) {
+    if (item['role'] == 'teacher') continue;
     final key = '${item['grade']}-${item['classNo']}';
     final group = classes.putIfAbsent(
       key,
@@ -132,7 +155,7 @@ Map<String, dynamic> localRankings(
             : ((a[key] ?? 0) as int).compareTo((b[key] ?? 0) as int);
         if (order != 0) return order;
       }
-      return 0;
+      return (a['name'] as String? ?? '').compareTo(b['name'] as String? ?? '');
     });
     var rank = 0;
     int? previousCount;
@@ -141,16 +164,18 @@ Map<String, dynamic> localRankings(
       if (item['harvestCount'] != previousCount) rank = i + 1;
       previousCount = item['harvestCount'] as int;
       item['rank'] = rank;
-      item['isSelf'] =
-          item['grade'] == profile['grade'] &&
-          item['classNo'] == profile['classNo'] &&
-          (item['number'] == null || item['number'] == profile['number']);
+      item['isSelf'] = list == individuals
+          ? profileKey(item) == profileKey(profile)
+          : profile['role'] != 'teacher' &&
+                item['grade'] == profile['grade'] &&
+                item['classNo'] == profile['classNo'];
     }
   }
   final items = scope == 'individual' ? individuals : classItems;
   final pages = (items.length / 10).ceil().clamp(1, 100000);
   page = page.clamp(0, pages - 1);
   return {
+    'role': profile['role'] ?? 'student',
     'scope': scope,
     'page': page,
     'pages': pages,

@@ -9,6 +9,71 @@ import 'package:growgame/missions/quiz/content.dart';
 import 'package:growgame/missions/quiz/popup.dart';
 
 void main() {
+  testWidgets('선생님 이름으로 참여하고 상단 표시와 기록을 복원한다', (tester) async {
+    test_storage.memoryStorage.clear();
+    tester.view.physicalSize = const Size(320, 568);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(const GrowGame(demo: true));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('선생님'));
+    await tester.pumpAndSettle();
+    expect(find.text('선택'), findsNothing);
+    await tester.enterText(find.byType(TextField), '가상교사');
+    await tester.pump();
+    await tester.tap(find.text('시작하기'));
+    await tester.pumpAndSettle();
+    expect(find.text('가상교사 선생님'), findsOneWidget);
+    await tester.tap(find.text('물 주기 +50%'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('랭킹 보드'));
+    await tester.pumpAndSettle();
+    expect(find.text('우리 반 순위'), findsNothing);
+    expect(find.text('가상교사 선생님'), findsOneWidget);
+    await tester.tap(find.text('내 밭'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('가상교사 선생님'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('참여 정보 바꾸기'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('시작하기'));
+    await tester.pumpAndSettle();
+    expect(find.text('50 / 100%'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  test('명단 학생과 이전 기록의 프로필 표시 및 교사 식별', () {
+    expect(
+      profileDisplayLabel({
+        'grade': 1,
+        'classNo': 12,
+        'number': 1,
+        'name': '가상학생',
+      }),
+      '1학년 12반 가상학생',
+    );
+    expect(
+      profileDisplayLabel({'grade': 1, 'classNo': 1, 'number': 1}),
+      '1학년 1반 1번',
+    );
+    expect(validProfile({'role': 'teacher', 'name': '가상교사'}), isTrue);
+    expect(validProfile({'role': 'teacher', 'name': ''}), isFalse);
+    final records = [
+      freshRecord({'role': 'teacher', 'name': '가상교사'}),
+      freshRecord({'role': 'teacher', 'name': '다른교사'}),
+    ];
+    expect(
+      decodeRecords(jsonEncode({'version': 1, 'records': records})),
+      hasLength(2),
+    );
+    expect(
+      localRankings(records, records.first['profile'], 'class', 0)['total'],
+      0,
+    );
+  });
+
   testWidgets('퀴즈 오답 재시도와 모든 문제 완료', (tester) async {
     bool? result;
     const questions = [

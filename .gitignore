@@ -12,4 +12,5 @@ coverage/
 backend/content/
 *.clixml
 admin-credentials.json
+/학생 명단.csv
 /docs/서버_노트북_설정_설명서.md

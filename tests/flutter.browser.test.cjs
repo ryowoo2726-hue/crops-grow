@@ -10,6 +10,11 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 (async () => {
   const dataDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'growgame-browser-db-'));
   const app = createBackend({directory: dataDirectory});
+  app.store.importRoster([
+    {grade:3,classNo:10,number:24,name:'가상학생'},
+    {grade:3,classNo:12,number:30,name:'명단학생'},
+    ...Array.from({length:12},(_,i)=>({grade:i<10?2:3,classNo:1,number:i<10?i+1:i-9,name:`테스트학생${i+1}`})),
+  ]);
   const apiPort=Number(process.env.GROWGAME_TEST_API_PORT)||8787;
   const startApi = () => new Promise(resolve => app.server.listen(apiPort, '127.0.0.1', resolve));
   const stopApi = () => new Promise(resolve => app.server.close(resolve));
@@ -71,6 +76,8 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     };
     const wait = async expression => {
       for (let i = 0; i < 200; i++) { if (await run(expression)) return; await sleep(100); }
+      const shot=await send('Page.captureScreenshot');
+      fs.writeFileSync(path.join(os.tmpdir(),'growgame-browser-failure.png'),Buffer.from(shot.data,'base64'));
       throw Error('대기 시간 초과: ' + expression + '\n' + JSON.stringify(errors));
     };
     await send('Runtime.enable');
@@ -91,8 +98,31 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
       await send('Input.dispatchMouseEvent', {type:'mouseReleased', ...point, button:'left', clickCount:1});
       await sleep(400);
     };
+    const fillInput = async (label, text) => {
+      const selector=`input[aria-label=${JSON.stringify(label)}]`;
+      await wait(`!!document.querySelector(${JSON.stringify(selector)})`);
+      const point=await run(`(()=>{const r=document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2};})()`);
+      await send('Input.dispatchMouseEvent',{type:'mousePressed',...point,button:'left',clickCount:1});
+      await send('Input.dispatchMouseEvent',{type:'mouseReleased',...point,button:'left',clickCount:1});
+      await sleep(200);
+      await send('Input.insertText',{text});
+      await sleep(300);
+    };
+    await clickText('선생님');
+    await wait("!!document.querySelector('input[aria-label=\"선생님 이름\"]')");
+    for (const [width,height] of [[320,568],[390,844],[1920,1080]]) {
+      await send('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:width<600});
+      await sleep(350);
+      const shot=await send('Page.captureScreenshot');
+      fs.writeFileSync(path.join(os.tmpdir(),`growgame-teacher-login-${width}.png`),Buffer.from(shot.data,'base64'));
+    }
+    await send('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
+    await sleep(500);
+    await clickText('학생');
+    await wait("!document.querySelector('input[aria-label=\"선생님 이름\"]')");
     for (const field of ['학년', '반', '번호']) {
       await clickText('선택');
+      if(field==='반') assert.equal(await run("document.querySelector('flt-semantics-host').textContent.includes('12반')"),true);
       if (field === '번호') {
         const shot = await send('Page.captureScreenshot');
         fs.writeFileSync(path.join(os.tmpdir(), 'growgame-flutter-number-picker.png'), Buffer.from(shot.data, 'base64'));
@@ -107,6 +137,7 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     fs.writeFileSync(path.join(os.tmpdir(), 'growgame-flutter-login.png'), Buffer.from(loginShot.data, 'base64'));
     await clickText('시작하기');
     await wait("document.querySelector('flt-semantics-host')?.textContent.includes('0 / 100%')");
+    assert.equal(await run("document.querySelector('flt-semantics-host').textContent.includes('3학년 10반 가상학생')"),true);
     for(let n=0;!pausedFont&&n<100;n++)await sleep(100);
     assert.ok(pausedFont,'보조 폰트 응답을 보류해도 게임 입장이 완료됨');
     assert.ok(healthMethods.includes('GET'),'실제 health 조회를 관찰함');
@@ -236,8 +267,32 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     fs.writeFileSync(path.join(os.tmpdir(),'growgame-flutter-offline.png'),Buffer.from(offlineShot.data,'base64'));
     await startApi(); await clickText('도감');
     await wait("!document.querySelector('flt-semantics-host')?.textContent.includes('서버 연결 안 됨')");
+    await clickText('내 밭');
+    await clickText('3학년 10반 가상학생');
+    await clickText('참여 정보 바꾸기');
+    await clickText('선생님');
+    await fillInput('선생님 이름','가상교사');
+    await fillInput('비밀번호 4자리','4321');
+    await clickText('시작하기');
+    await wait("document.querySelector('flt-semantics-host')?.textContent.includes('가상교사 선생님')");
+    await clickText('물 주기');
+    await wait("document.querySelector('flt-semantics-host')?.textContent.includes('50 / 100%')");
+    await sleep(1900);
+    const teacherShot=await send('Page.captureScreenshot');
+    fs.writeFileSync(path.join(os.tmpdir(),'growgame-teacher-farm.png'),Buffer.from(teacherShot.data,'base64'));
+    await clickText('랭킹 보드');
+    await wait("document.querySelector('flt-semantics-host')?.textContent.includes('내 개인 순위')");
+    await clickText('다음 랭킹 페이지');
+    await wait("document.querySelector('flt-semantics-host')?.textContent.includes('가상교사 선생님')");
+    assert.equal(await run("document.querySelector('flt-semantics-host').textContent.includes('우리 반 순위')"),false);
+    await clickText('내 밭');
+    await clickText('가상교사 선생님');
+    await clickText('참여 정보 바꾸기');
+    await fillInput('비밀번호 4자리','4321');
+    await clickText('시작하기');
+    await wait("document.querySelector('flt-semantics-host')?.textContent.includes('50 / 100%')");
     assert.equal(errors.length, 0, JSON.stringify(errors));
-    console.log('Flutter Chrome 통과: PIN 등록 → 기기 채점·요약 제출 → 완료 결과 재조회 → 성장·수확·도감 저장 → 오프라인·복구 · 3가지 화면');
+    console.log('Flutter Chrome 통과: 명단·12반·학생 이름 → 퀴즈·성장·수확·랭킹·복구 → 교사 이름 참여·재로그인 · 3가지 화면');
   } finally {
     socket?.close(); proc.kill();
     if(app.server.listening) await stopApi();

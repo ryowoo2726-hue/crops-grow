@@ -4,10 +4,24 @@ const {dataDirectory} = require('./config.cjs');
 const fs = require('node:fs');
 const path = require('node:path');
 const {createAdmin,readCredentials} = require('./admin.cjs');
+const {parseRoster} = require('./roster.cjs');
 
-function createBackend({directory,origins=['http://localhost:4174','http://127.0.0.1:4174'],now=Date.now,dailyLimit=false,adminCredentials=null,quizBankFile=null} = {}) {
+function createBackend({directory,origins=['http://localhost:4174','http://127.0.0.1:4174'],now=Date.now,dailyLimit=false,adminCredentials=null,quizBankFile=null,rosterFile=null} = {}) {
   const store = openStore(directory,{now,dailyLimit});
   const admin = createAdmin(store,{credentials:adminCredentials,now});
+  let rosterStamp = '';
+  function syncRoster() {
+    if (!rosterFile || !fs.existsSync(rosterFile)) return;
+    const stat = fs.statSync(rosterFile);
+    const stamp = `${stat.mtimeMs}-${stat.size}`;
+    if (stamp === rosterStamp) return;
+    store.importRoster(parseRoster(fs.readFileSync(rosterFile,'utf8')));
+    rosterStamp = stamp;
+  }
+  try { syncRoster(); } catch (error) {
+    if (!store.db.prepare('SELECT 1 FROM student_roster LIMIT 1').get()) { store.db.close(); throw error; }
+    console.error('학생 명단 CSV 형식을 확인하세요. 마지막 정상 명단을 유지합니다.');
+  }
   let quizBankStamp = '';
   function syncQuizBank() {
     if (!quizBankFile || !fs.existsSync(quizBankFile)) return;
@@ -39,6 +53,13 @@ function createBackend({directory,origins=['http://localhost:4174','http://127.0
         res.end(fs.readFileSync(path.join(__dirname,'admin',file))); return;
       }
       if (req.method==='GET' && url.pathname==='/api/health') { reply(200,{ok:true}); return; }
+      if (url.pathname==='/api/login-options' || url.pathname==='/api/session') {
+        try { syncRoster(); } catch {
+          console.error('학생 명단 CSV 형식을 확인하세요. 마지막 정상 명단을 유지합니다.');
+          if (!store.db.prepare('SELECT 1 FROM student_roster LIMIT 1').get()) throw new ApiError(503,'학생 명단을 준비하고 있어요. 잠시 후 다시 시도해 주세요.');
+        }
+      }
+      if (req.method==='GET' && url.pathname==='/api/login-options') { reply(200,store.loginOptions()); return; }
       let input;
       if (req.method==='POST') {
         if (!(req.headers['content-type']||'').startsWith('application/json')) throw new ApiError(415,'JSON 요청이 필요합니다.');
@@ -84,7 +105,7 @@ function createBackend({directory,origins=['http://localhost:4174','http://127.0
 }
 if(require.main===module) {
   const directory=dataDirectory();
-  const {server,store}=createBackend({directory,origins:(process.env.FRONTEND_ORIGINS||'https://cropgrow.sangsangbar.com,http://localhost:4174,http://127.0.0.1:4174').split(',').map(x=>x.trim()).filter(Boolean),dailyLimit:process.env.DAILY_LIMIT==='true',adminCredentials:readCredentials(),quizBankFile:path.join(__dirname,'content','quiz-bank.json')});
+  const {server,store}=createBackend({directory,origins:(process.env.FRONTEND_ORIGINS||'https://cropgrow.sangsangbar.com,http://localhost:4174,http://127.0.0.1:4174').split(',').map(x=>x.trim()).filter(Boolean),dailyLimit:process.env.DAILY_LIMIT==='true',adminCredentials:readCredentials(),quizBankFile:path.join(__dirname,'content','quiz-bank.json'),rosterFile:process.env.GROWGAME_ROSTER_FILE || path.join(__dirname,'..','학생 명단.csv')});
   server.listen(Number(process.env.PORT)||8787,'127.0.0.1',()=>{
     const base=`http://127.0.0.1:${server.address().port}`;
     console.log(`GrowGame API: ${base}\n관리자: ${base}/admin/\nDB 폴더: ${directory}`);

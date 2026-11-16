@@ -149,6 +149,9 @@ class _FarmGameState extends State<FarmGame>
   Timer? missionTimer;
   final backend = BackendClient();
   final pin = TextEditingController();
+  final teacherName = TextEditingController();
+  bool teacher = false;
+  List<dynamic>? loginClasses;
   final pendingRequests = <String, String>{};
   bool disconnected = false, refreshing = false;
   String? loadedCrop;
@@ -175,8 +178,18 @@ class _FarmGameState extends State<FarmGame>
       missions[seoulDay()] ?? (localTestMode ? localTestSpecial : null);
   Map<String, dynamic> get r => record!;
   List<dynamic> get harvests => r['harvests'];
-  String get profileLabel =>
-      '${r['profile']['grade']}학년 ${r['profile']['classNo']}반 ${r['profile']['number']}번';
+  String get profileLabel => profileDisplayLabel(r['profile']);
+  Map<String, dynamic> get loginProfile => teacher
+      ? {'role': 'teacher', 'name': teacherName.text.trim()}
+      : {
+          'role': 'student',
+          'grade': grade,
+          'classNo': classNo,
+          'number': number,
+        };
+  bool get profileSelected => teacher
+      ? teacherName.text.trim().isNotEmpty
+      : grade > 0 && classNo > 0 && number > 0;
 
   @override
   void initState() {
@@ -239,6 +252,7 @@ class _FarmGameState extends State<FarmGame>
     rewardController.dispose();
     missionTimer?.cancel();
     pin.dispose();
+    teacherName.dispose();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -280,7 +294,13 @@ class _FarmGameState extends State<FarmGame>
   Future<void> checkConnection() async {
     try {
       await backend.call('GET', '/api/health');
-      if (mounted) setState(() => disconnected = false);
+      final options = await backend.call('GET', '/api/login-options');
+      if (mounted) {
+        setState(() {
+          loginClasses = options['classes'] as List;
+          disconnected = false;
+        });
+      }
     } catch (_) {
       if (mounted) setState(() => disconnected = true);
     }
@@ -622,18 +642,35 @@ class _FarmGameState extends State<FarmGame>
   );
 
   Future<void> select(String kind) async {
-    final count = kind == '학년'
-        ? 3
-        : kind == '반'
-        ? 10
-        : 30;
+    final choices = <int>{};
+    if (remote) {
+      for (final group in loginClasses ?? []) {
+        if (kind == '학년') choices.add(group['grade'] as int);
+        if (group['grade'] != grade) continue;
+        if (kind == '반') choices.add(group['classNo'] as int);
+        if (kind == '번호' && group['classNo'] == classNo) {
+          choices.addAll((group['numbers'] as List).cast<int>());
+        }
+      }
+    } else {
+      choices.addAll(
+        List.generate(
+          kind == '학년'
+              ? 3
+              : kind == '반'
+              ? 12
+              : 30,
+          (i) => i + 1,
+        ),
+      );
+    }
     final value = await popup<int>(
       '$kind 선택',
       (context, _) => Wrap(
         spacing: 8,
         runSpacing: 8,
         children: [
-          for (var i = 1; i <= count; i++)
+          for (final i in choices.toList()..sort())
             SizedBox(
               width: kind == '학년' ? 250 : 76,
               child: FilledButton.tonal(
@@ -675,7 +712,7 @@ class _FarmGameState extends State<FarmGame>
   }
 
   Future<void> enter() async {
-    if (grade < 1 || classNo < 1 || number < 1) return;
+    if (!profileSelected) return;
     if (remote) {
       if (busy || !RegExp(r'^\d{4}$').hasMatch(pin.text)) return;
       setState(() {
@@ -687,7 +724,7 @@ class _FarmGameState extends State<FarmGame>
       });
       try {
         final result = await backend.call('POST', '/api/session', {
-          'profile': {'grade': grade, 'classNo': classNo, 'number': number},
+          'profile': loginProfile,
           'pin': pin.text,
         });
         if (!mounted) return;
@@ -722,15 +759,10 @@ class _FarmGameState extends State<FarmGame>
       return;
     }
     final found = records.where(
-      (e) =>
-          e['profile']['grade'] == grade &&
-          e['profile']['classNo'] == classNo &&
-          e['profile']['number'] == number,
+      (e) => profileKey(e['profile']) == profileKey(loginProfile),
     );
     setState(() {
-      record = found.isNotEmpty
-          ? found.first
-          : freshRecord({'grade': grade, 'classNo': classNo, 'number': number});
+      record = found.isNotEmpty ? found.first : freshRecord(loginProfile);
       if (found.isEmpty) records.add(r);
       tab = 0;
       page = 0;
@@ -1203,7 +1235,9 @@ class _FarmGameState extends State<FarmGame>
           image('crops/$crop-harvest', height: 170),
           heading('+1', size: 28),
           Text(
-            '${crops[crop]} 수확이 개인·반 랭킹에 반영됐어요.',
+            r['profile']['role'] == 'teacher'
+                ? '${crops[crop]} 수확이 개인 랭킹에 반영됐어요.'
+                : '${crops[crop]} 수확이 개인·반 랭킹에 반영됐어요.',
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: 22),
@@ -1388,69 +1422,114 @@ class _FarmGameState extends State<FarmGame>
                 Column(
                   children: [
                     heading('누구의 밭인가요?', size: 22),
-                    const SizedBox(height: 22),
-                    Row(
-                      children: [
-                        for (final field in [
-                          ('학년', grade),
-                          ('반', classNo),
-                          ('번호', number),
-                        ])
-                          Expanded(
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 3,
-                              ),
-                              child: Column(
-                                children: [
-                                  Text(
-                                    field.$1,
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.w700,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 7),
-                                  OutlinedButton(
-                                    style: OutlinedButton.styleFrom(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 3,
+                    const SizedBox(height: 14),
+                    SizedBox(
+                      width: double.infinity,
+                      child: SegmentedButton<bool>(
+                        segments: const [
+                          ButtonSegment(
+                            value: false,
+                            icon: Icon(Icons.school_outlined),
+                            label: Text('학생'),
+                          ),
+                          ButtonSegment(
+                            value: true,
+                            icon: Icon(Icons.person_outline),
+                            label: Text('선생님'),
+                          ),
+                        ],
+                        selected: {teacher},
+                        onSelectionChanged: busy
+                            ? null
+                            : (value) => setState(() {
+                                teacher = value.single;
+                                loginError = null;
+                                pin.clear();
+                              }),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    if (teacher)
+                      TextField(
+                        controller: teacherName,
+                        enabled: !busy,
+                        maxLength: 50,
+                        textInputAction: TextInputAction.next,
+                        onChanged: (_) => setState(() => loginError = null),
+                        decoration: const InputDecoration(
+                          labelText: '선생님 이름',
+                          counterText: '',
+                          border: OutlineInputBorder(),
+                        ),
+                      )
+                    else
+                      Row(
+                        children: [
+                          for (final field in [
+                            ('학년', grade),
+                            ('반', classNo),
+                            ('번호', number),
+                          ])
+                            Expanded(
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 3,
+                                ),
+                                child: Column(
+                                  children: [
+                                    Text(
+                                      field.$1,
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w700,
                                       ),
-                                      minimumSize: const Size(
-                                        double.infinity,
-                                        52,
-                                      ),
                                     ),
-                                    onPressed:
-                                        field.$1 == '반' && grade == 0 ||
-                                            field.$1 == '번호' && classNo == 0
-                                        ? null
-                                        : () => select(field.$1),
-                                    child: Row(
-                                      children: [
-                                        Expanded(
-                                          child: Text(
-                                            field.$2 == 0
-                                                ? '선택'
-                                                : '${field.$2}${field.$1 == '번호' ? '번' : field.$1}',
-                                            maxLines: 1,
-                                            softWrap: false,
-                                            textAlign: TextAlign.center,
-                                            style: const TextStyle(
-                                              fontSize: 14,
-                                              fontWeight: FontWeight.w700,
+                                    const SizedBox(height: 7),
+                                    OutlinedButton(
+                                      style: OutlinedButton.styleFrom(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 3,
+                                        ),
+                                        minimumSize: const Size(
+                                          double.infinity,
+                                          52,
+                                        ),
+                                      ),
+                                      onPressed:
+                                          busy ||
+                                              remote && loginClasses == null ||
+                                              field.$1 == '반' && grade == 0 ||
+                                              field.$1 == '번호' && classNo == 0
+                                          ? null
+                                          : () => select(field.$1),
+                                      child: Row(
+                                        children: [
+                                          Expanded(
+                                            child: Text(
+                                              field.$2 == 0
+                                                  ? '선택'
+                                                  : '${field.$2}${field.$1 == '번호' ? '번' : field.$1}',
+                                              maxLines: 1,
+                                              softWrap: false,
+                                              textAlign: TextAlign.center,
+                                              style: const TextStyle(
+                                                fontSize: 14,
+                                                fontWeight: FontWeight.w700,
+                                              ),
                                             ),
                                           ),
-                                        ),
-                                        const Icon(Icons.expand_more, size: 16),
-                                      ],
+                                          const Icon(
+                                            Icons.expand_more,
+                                            size: 16,
+                                          ),
+                                        ],
+                                      ),
                                     ),
-                                  ),
-                                ],
+                                  ],
+                                ),
                               ),
                             ),
-                          ),
-                      ],
-                    ),
+                        ],
+                      ),
                     const SizedBox(height: 22),
                     if (remote) ...[
                       TextField(
@@ -1488,7 +1567,7 @@ class _FarmGameState extends State<FarmGame>
                     action(
                       busy ? (loginStatus ?? '확인 중…') : '시작하기',
                       busy ||
-                              grade * classNo * number == 0 ||
+                              !profileSelected ||
                               remote && !RegExp(r'^\d{4}$').hasMatch(pin.text)
                           ? null
                           : enter,
@@ -1497,9 +1576,9 @@ class _FarmGameState extends State<FarmGame>
                 ),
               ),
               const SizedBox(height: 16),
-              const Text(
-                '학년 · 반 · 번호로 입장',
-                style: TextStyle(
+              Text(
+                teacher ? '선생님은 이름으로 입장' : '학년 · 반 · 번호로 입장',
+                style: const TextStyle(
                   fontSize: 13,
                   color: cream,
                   shadows: [Shadow(blurRadius: 4, color: ink)],

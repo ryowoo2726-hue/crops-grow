@@ -47,7 +47,7 @@ function createAdmin(store,{credentials,now}) {
       const students=store.db.prepare(`SELECT p.grade,p.class_no classNo,p.number,p.crop_id cropId,p.progress,
         CASE WHEN p.pin_hash<>'' THEN 1 ELSE 0 END pinConfigured,
         (SELECT COUNT(*) FROM harvests h WHERE h.player_id=p.id) harvestCount
-        FROM players p ORDER BY p.grade,p.class_no,p.number`).all();
+        FROM players p WHERE p.role='student' ORDER BY p.grade,p.class_no,p.number`).all();
       reply(200,{students}); return;
     }
     if (route==='/api/admin/reset-pin' && method==='POST') {

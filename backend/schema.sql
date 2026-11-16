@@ -4,15 +4,27 @@ PRAGMA busy_timeout = 3000;
 PRAGMA cache_size = -4096;
 CREATE TABLE IF NOT EXISTS players (
   id INTEGER PRIMARY KEY,
-  grade INTEGER NOT NULL CHECK(grade BETWEEN 1 AND 3),
-  class_no INTEGER NOT NULL CHECK(class_no BETWEEN 1 AND 10),
-  number INTEGER NOT NULL CHECK(number BETWEEN 1 AND 30),
+  role TEXT NOT NULL DEFAULT 'student' CHECK(role IN ('student','teacher')),
+  name TEXT NOT NULL DEFAULT '',
+  grade INTEGER CHECK(grade BETWEEN 1 AND 3),
+  class_no INTEGER CHECK(class_no BETWEEN 1 AND 99),
+  number INTEGER CHECK(number BETWEEN 1 AND 99),
   pin_salt TEXT NOT NULL, pin_hash TEXT NOT NULL,
   failed_attempts INTEGER NOT NULL DEFAULT 0, locked_until INTEGER NOT NULL DEFAULT 0,
   crop_id TEXT DEFAULT 'rice', progress INTEGER NOT NULL DEFAULT 0 CHECK(progress BETWEEN 0 AND 100),
   water_day TEXT NOT NULL DEFAULT '', mission_day TEXT NOT NULL DEFAULT '',
   revision INTEGER NOT NULL DEFAULT 0,
-  UNIQUE(grade, class_no, number)
+  UNIQUE(grade, class_no, number),
+  CHECK((role='student' AND grade IS NOT NULL AND class_no IS NOT NULL AND number IS NOT NULL)
+    OR (role='teacher' AND grade IS NULL AND class_no IS NULL AND number IS NULL AND length(name)>0))
+) STRICT;
+CREATE UNIQUE INDEX IF NOT EXISTS players_teacher_name ON players(name) WHERE role='teacher';
+CREATE TABLE IF NOT EXISTS student_roster (
+  grade INTEGER NOT NULL CHECK(grade BETWEEN 1 AND 3),
+  class_no INTEGER NOT NULL CHECK(class_no BETWEEN 1 AND 99),
+  number INTEGER NOT NULL CHECK(number BETWEEN 1 AND 99),
+  name TEXT NOT NULL CHECK(length(name)>0),
+  PRIMARY KEY(grade,class_no,number)
 ) STRICT;
 CREATE TABLE IF NOT EXISTS sessions (
   token_hash TEXT PRIMARY KEY, player_id INTEGER NOT NULL REFERENCES players(id), expires_at INTEGER NOT NULL
@@ -56,4 +68,4 @@ CREATE TABLE IF NOT EXISTS quiz_runs (
   UNIQUE(player_id, subject, day)
 ) STRICT;
 CREATE INDEX IF NOT EXISTS quiz_runs_history ON quiz_runs(player_id, set_id);
-PRAGMA user_version = 2;
+PRAGMA user_version = 3;

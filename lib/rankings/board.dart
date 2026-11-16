@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../game.dart';
 
 class RankingsBoard extends StatelessWidget {
   const RankingsBoard({
@@ -51,7 +52,7 @@ class RankingsBoard extends StatelessWidget {
           children: [
             for (final item in [
               ('individual', '내 개인 순위'),
-              ('class', '우리 반 순위'),
+              if (data?['role'] != 'teacher') ('class', '우리 반 순위'),
             ])
               Expanded(
                 child: Padding(
@@ -156,7 +157,7 @@ class RankingsBoard extends StatelessWidget {
                       final row = items[index] as Map;
                       final isSelf = row['isSelf'] == true;
                       final label = scope == 'individual'
-                          ? '${row['grade']}학년 ${row['classNo']}반 ${row['number']}번'
+                          ? profileDisplayLabel(row)
                           : '${row['grade']}학년 ${row['classNo']}반';
                       return Container(
                         padding: const EdgeInsets.symmetric(
