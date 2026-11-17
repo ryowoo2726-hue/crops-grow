@@ -6,7 +6,8 @@ Flutter Web 프론트와 Node.js + SQLite 백엔드입니다. 백엔드를 Oracl
 
 - 프론트 주소: `https://cropgrow.sangsangbar.com`
 - 게임 API: `https://cropgrow-api.sangsangbar.com/api/*` (브라우저에서 백엔드에 직접 요청)
-- 관리자/직접 API: `https://cropgrow-api.sangsangbar.com`
+- 직접 API: `https://cropgrow-api.sangsangbar.com`
+- 관리자 웹: `https://cropgrow.sangsangbar.com/admin/` — 연결 상태와 월간 참고 트래픽 표시, 기존 기록 관리 기능 유지
 - GitHub `main`과 Cloudflare Pages `cropgrow`를 연결했습니다. push하면 자동 배포됩니다. 2026-11-18 Pages Functions API 중계를 제거하고 직접 API 주소를 기본값으로 변경했습니다. Oracle의 새 DB·명단·관리자·HTTPS·API DNS 전환과 자동 시작·일일 백업 설정은 완료했으며 프론트 배포를 준비 중입니다. 최신 완료/미완료 상태는 인수인계 최상단을 확인하세요. 이전 노트북 연결의 측정 결과는 [인터넷 성능 보고서](docs/INTERNET_PERFORMANCE_REPORT.md)에 있습니다.
 
 ## 웹 로딩 최적화 (2026-11-11)

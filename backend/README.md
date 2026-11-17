@@ -1,5 +1,15 @@
 # 백엔드 실행·관리
 
+## Cloudflare 관리자와 자동 복구 (2026-11-18)
+
+관리자 주소는 `https://cropgrow.sangsangbar.com/admin/`입니다. 기존 관리자 비밀번호로 로그인하며 학생/교사 기록·PIN 변경·삭제·특별미션·메시지 전송 기능을 유지합니다. 화면은 Cloudflare 정적 파일로 제공하고 관리자 API는 Oracle에 직접 요청합니다. 백엔드가 중단되어도 관리자 페이지를 열 수 있으며 15초 간격의 연결 배지와 다시 확인 버튼으로 상태를 확인합니다. 응답 없음은 서버 또는 네트워크 문제를 뜻합니다.
+
+로그인하면 서버 트래픽 카드에서 현재 UTC 월의 송신·수신량과 10TB 무료 외부 전송 기준 대비 비율을 봅니다. 네트워크 인터페이스 기준의 참고 수치로 내부 통신 등을 포함하여 Oracle 청구량과 다를 수 있습니다. 집계는 `/var/lib/growgame/server-traffic.json`에 저장하고 재시작·재부팅을 이어 계산합니다. 집계를 처음 시작한 달의 이전 데이터가 없으면 수집 이후 사용량만 표시합니다. 정확한 청구량은 Oracle 콘솔에서 확인합니다.
+
+백엔드 종료 시 3초 뒤 자동 재시작하고, `growgame-healthcheck.timer`가 매분 DB 확인을 포함한 로컬 health를 점검합니다. curl 재시도까지 실패하면 `growgame-recover.service`가 백엔드를 재시작합니다. VM 자체 강제 재부팅이나 Oracle의 VM 회수 복구를 보장하는 구성은 아닙니다. 유지보수 중 의도적으로 끄려면 `sudo systemctl stop growgame-healthcheck.timer growgame`을 실행하고, 다시 켤 때는 `sudo systemctl start growgame growgame-healthcheck.timer`를 사용합니다.
+
+다른 Windows PC의 SSH 키는 해당 PC에서 `ssh-keygen -t ed25519 -f "$env:USERPROFILE\.ssh\growgame-oracle"`로 만듭니다. `.ssh` 폴더가 없으면 먼저 생성하고 같은 이름의 키가 있으면 다른 파일명을 선택합니다. 생성된 `.pub` 공개 키만 서버의 `~/.ssh/authorized_keys`에 추가합니다. 개인 키는 로컬에 보관하며 Git·채팅에 넣지 않습니다. Dots에 연결할 때도 클라우드 환경에서 별도 전용 키를 만들고 필요한 관리 권한만 허용하는 방식을 사용합니다.
+
 ## Oracle 무료 VM 직접 연결 준비 (2026-11-18)
 
 브라우저가 Oracle 무료 VM의 `https://cropgrow-api.sangsangbar.com/api/*`에 직접 요청합니다. Pages Functions 중계 코드는 제거했으며 Cloudflare Pages는 정적 프론트 파일만 제공합니다. 프론트와 두 빌드 경로, 실제 Pages production/preview 환경변수의 API 주소를 변경했습니다. Oracle API DNS·HTTPS 전환은 완료했고 프론트 GitHub 업로드·Pages 배포는 인수인계 최상단의 완료 상태를 확인하세요.

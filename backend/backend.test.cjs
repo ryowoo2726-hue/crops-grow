@@ -626,7 +626,7 @@ test('관리자 인증, 학생 목록, PIN 변경, 권한 분리와 만료',asyn
   assert.equal((await request('/api/admin/teachers',{token:student.token})).status,401);
   assert.equal((await request('/api/admin/reset-pin',{token:student.token,body:{profile,pin:'0246'}})).status,401);
   assert.equal((await request('/api/admin/session',{body:{password},origin:'https://untrusted.example'})).status,403);
-  assert.equal((await request('/api/admin/session',{body:{password},origin:'http://localhost:4174'})).status,403);
+  assert.equal((await request('/api/admin/session',{body:{password},origin:'http://localhost:4174'})).status,200);
   for(let n=0;n<5;n++) assert.equal((await request('/api/admin/session',{body:{password:'9999'}})).status,401);
   assert.equal((await request('/api/admin/session',{body:{password}})).status,429);
   clock+=16*60000;
@@ -803,6 +803,36 @@ test('관리자 비밀번호 미설정 시 로그인 차단',async t=>{
   t.after(async()=>{await new Promise(resolve=>app.server.close(resolve));app.store.db.close();assert.ok(directory.startsWith(path.resolve(os.tmpdir())+path.sep));fs.rmSync(directory,{recursive:true,force:true});});
   const response=await fetch(`http://127.0.0.1:${app.server.address().port}/api/admin/session`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:'6815'})});
   assert.equal(response.status,503);
+});
+
+test('Cloudflare 관리자 직접 연결: 허용 Origin·preflight·관리자와 학생 인증 분리',async t=>{
+  const directory=fs.mkdtempSync(path.join(os.tmpdir(),'growgame-admin-cors-'));
+  const origin='https://cropgrow.sangsangbar.com';
+  const app=createBackend({directory,origins:[origin],adminCredentials:await hashPassword('6815')});
+  await new Promise(resolve=>app.server.listen(0,'127.0.0.1',resolve));
+  t.after(async()=>{await new Promise(resolve=>app.server.close(resolve));app.store.db.close();assert.ok(directory.startsWith(path.resolve(os.tmpdir())+path.sep));fs.rmSync(directory,{recursive:true,force:true});});
+  const base=`http://127.0.0.1:${app.server.address().port}`;
+  const preflight=await fetch(base+'/api/admin/delete-student',{method:'OPTIONS',headers:{Origin:origin,
+    'Access-Control-Request-Method':'POST','Access-Control-Request-Headers':'authorization,content-type'}});
+  assert.equal(preflight.status,204);assert.equal(preflight.headers.get('access-control-allow-origin'),origin);
+  const headers={Origin:origin,'Content-Type':'application/json'};
+  assert.equal((await fetch(base+'/api/admin/students',{headers})).status,401);
+  assert.equal((await fetch(base+'/api/admin/traffic',{headers})).status,401);
+  const student=await app.store.login({grade:1,classNo:1,number:1},'1234');
+  assert.equal((await fetch(base+'/api/admin/students',{headers:{...headers,Authorization:'Bearer '+student.token}})).status,401);
+  assert.equal((await fetch(base+'/api/admin/traffic',{headers:{...headers,Authorization:'Bearer '+student.token}})).status,401);
+  const login=await fetch(base+'/api/admin/session',{method:'POST',headers,body:JSON.stringify({password:'6815'})});
+  assert.equal(login.status,200);const {token}=await login.json();
+  const authorized={...headers,Authorization:'Bearer '+token};
+  assert.equal((await fetch(base+'/api/admin/students',{headers:authorized})).status,200);
+  const traffic=await fetch(base+'/api/admin/traffic',{headers:authorized});
+  assert.equal(traffic.status,200);assert.equal(typeof (await traffic.json()).available,'boolean');
+  assert.equal((await fetch(base+'/api/admin/students',{headers:{...authorized,Origin:'https://untrusted.example'}})).status,403);
+  assert.equal((await fetch(base+'/api/admin/session',{method:'OPTIONS',headers:{Origin:'https://untrusted.example'}})).status,403);
+  const prepare=app.store.db.prepare.bind(app.store.db);let unavailable=false;
+  t.mock.method(app.store.db,'prepare',sql=>{if(unavailable&&sql==='SELECT 1 FROM players LIMIT 1')throw Error('test database unavailable');return prepare(sql);});
+  unavailable=true;assert.equal((await fetch(base+'/api/health')).status,500);
+  unavailable=false;assert.equal((await fetch(base+'/api/health')).status,200);
 });
 
 test('DB 복원, PIN, 서버 판정, 중복 보상 방지, CORS와 클래스 분리',async t=>{

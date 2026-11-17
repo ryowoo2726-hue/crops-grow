@@ -10,7 +10,9 @@ function filesIn(directory) {
   }).sort();
 }
 
-function finalizeWeb(directory) {
+function finalizeWeb(directory,apiBaseUrl=process.env.API_BASE_URL||'https://cropgrow-api.sangsangbar.com') {
+  const apiOrigin=new URL(apiBaseUrl);
+  if(!['http:','https:'].includes(apiOrigin.protocol)||apiOrigin.username||apiOrigin.password)throw Error('API_BASE_URL must be an HTTP(S) URL without credentials');
   const fontManifest = path.join(directory,'assets','FontManifest.json');
   if (fs.existsSync(fontManifest)) {
     const families = JSON.parse(fs.readFileSync(fontManifest,'utf8'));
@@ -66,6 +68,12 @@ function finalizeWeb(directory) {
       .replace('"jsSupportRuntimePath":"main.dart.mjs"',`"jsSupportRuntimePath":"${runtimeUrl}"`);
     fs.writeFileSync(file,output);
   }
+  const adminDirectory=path.join(directory,'admin');
+  fs.cpSync(path.resolve(__dirname,'../backend/admin'),adminDirectory,{recursive:true});
+  const adminIndex=path.join(adminDirectory,'index.html');
+  fs.writeFileSync(adminIndex,fs.readFileSync(adminIndex,'utf8').replace('name="growgame-api-base" content=""',`name="growgame-api-base" content="${apiOrigin.origin}"`));
+  const headers=fs.readFileSync(path.resolve(__dirname,'../web/_headers'),'utf8');
+  fs.writeFileSync(path.join(directory,'_headers'),headers+`\n/admin/*\n  Cache-Control: no-store\n  X-Content-Type-Options: nosniff\n  Referrer-Policy: no-referrer\n  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self' ${apiOrigin.origin}; img-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'\n`);
   return {mainUrl,engineUrl, ...(wasmUrl ? {wasmUrl,runtimeUrl} : {})};
 }
 

@@ -5,10 +5,12 @@ const fs = require('node:fs');
 const path = require('node:path');
 const {createAdmin,readCredentials} = require('./admin.cjs');
 const {parseRoster} = require('./roster.cjs');
+const {createTrafficMeter} = require('./traffic.cjs');
 
-function createBackend({directory,origins=['http://localhost:4174','http://127.0.0.1:4174'],now=Date.now,dailyLimit=false,adminCredentials=null,quizBankFile=null,rosterFile=null} = {}) {
+function createBackend({directory,origins=['http://localhost:4174','http://127.0.0.1:4174'],now=Date.now,dailyLimit=false,adminCredentials=null,quizBankFile=null,rosterFile=null,readTrafficCounters} = {}) {
   const store = openStore(directory,{now,dailyLimit});
-  const admin = createAdmin(store,{credentials:adminCredentials,now});
+  const traffic = createTrafficMeter(directory,{now,readCounters:readTrafficCounters});
+  const admin = createAdmin(store,{credentials:adminCredentials,now,traffic});
   let rosterStamp = '';
   function syncRoster() {
     if (!rosterFile || !fs.existsSync(rosterFile)) return;
@@ -37,7 +39,7 @@ function createBackend({directory,origins=['http://localhost:4174','http://127.0
     const sameAdminOrigin = origin===`https://${req.headers.host}` ||
       (/^(127\.0\.0\.1|localhost)(:\d+)?$/.test(req.headers.host||'') && origin===`http://${req.headers.host}`);
     const reply = (status,data) => { res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}); res.end(JSON.stringify(data)); };
-    if (origin && (isAdminRequest ? !sameAdminOrigin : !origins.includes(origin))) { reply(403,{error:'허용되지 않은 사이트입니다.'}); return; }
+    if (origin && !origins.includes(origin) && !(isAdminRequest && sameAdminOrigin)) { reply(403,{error:'허용되지 않은 사이트입니다.'}); return; }
     if (origin) { res.setHeader('Access-Control-Allow-Origin',origin); res.setHeader('Vary','Origin'); }
     if (req.method==='OPTIONS') {
       res.writeHead(204,{'Access-Control-Allow-Methods':'GET,POST,OPTIONS','Access-Control-Allow-Headers':'Authorization,Content-Type','Access-Control-Max-Age':'600'}); res.end(); return;
@@ -52,7 +54,7 @@ function createBackend({directory,origins=['http://localhost:4174','http://127.0
           'Content-Security-Policy':"default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"});
         res.end(fs.readFileSync(path.join(__dirname,'admin',file))); return;
       }
-      if (req.method==='GET' && url.pathname==='/api/health') { reply(200,{ok:true}); return; }
+      if (req.method==='GET' && url.pathname==='/api/health') { store.db.prepare('SELECT 1 FROM players LIMIT 1').get(); reply(200,{ok:true}); return; }
       if (url.pathname==='/api/login-options' || url.pathname==='/api/session') {
         try { syncRoster(); } catch {
           console.error('학생 명단 CSV 형식을 확인하세요. 마지막 정상 명단을 유지합니다.');
@@ -116,6 +118,7 @@ function createBackend({directory,origins=['http://localhost:4174','http://127.0
   });
   server.requestTimeout=15000; server.headersTimeout=10000;
   server.maxRequestsPerSocket=100;
+  server.on('close',()=>traffic.close());
   return {server,store};
 }
 if(require.main===module) {

@@ -2,6 +2,7 @@
 const fs=require('node:fs'),os=require('node:os'),path=require('node:path');
 const assert=require('node:assert/strict');
 const {spawn}=require('node:child_process');
+const http=require('node:http');
 const {createBackend}=require('../backend/server.cjs');
 const {hashPassword}=require('../backend/admin.cjs');
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
@@ -9,8 +10,10 @@ const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
   const directory=fs.mkdtempSync(path.join(os.tmpdir(),'growgame-admin-browser-'));
   const profile=path.join(directory,'chrome');
   const password='6815';
-  const app=createBackend({directory,adminCredentials:await hashPassword(password)});
-  let chrome,socket;
+  const origins=[];
+  const app=createBackend({directory,origins,adminCredentials:await hashPassword(password),
+    readTrafficCounters:()=>({rxBytes:1200000000,txBytes:456000000,bootId:'browser-test',bootAt:Date.now()-3600000})});
+  let chrome,socket,frontend;
   try{
     for(const p of [{grade:1,classNo:1,number:1},{grade:1,classNo:2,number:2},{grade:2,classNo:1,number:3}])await app.store.login(p,'1234');
     app.store.importRoster([{grade:1,classNo:1,number:1,name:'가상수신자'},{grade:1,classNo:2,number:2,name:'가상발신자'},{grade:2,classNo:1,number:3,name:'가상학생'}]);
@@ -18,6 +21,17 @@ const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
     app.store.db.prepare("INSERT INTO harvests(player_id,crop_id,created_at) SELECT id,'rice','2026-11-12T00:00:00Z' FROM players WHERE grade=1 AND class_no=1").run();
     await new Promise(resolve=>app.server.listen(0,'127.0.0.1',resolve));
     const base=`http://127.0.0.1:${app.server.address().port}`;
+    const apiPort=app.server.address().port;
+    frontend=http.createServer((req,res)=>{
+      const file={'/admin/':'index.html','/admin/admin.js':'admin.js','/admin/admin.css':'admin.css'}[req.url];
+      if(!file){res.writeHead(404);res.end();return;}
+      const body=fs.readFileSync(path.join(__dirname,'../backend/admin',file),'utf8').replace('name="growgame-api-base" content=""',`name="growgame-api-base" content="${base}"`);
+      res.writeHead(200,{'Content-Type':file.endsWith('.html')?'text/html; charset=utf-8':file.endsWith('.js')?'text/javascript; charset=utf-8':'text/css; charset=utf-8','Cache-Control':'no-store',
+        'Content-Security-Policy':`default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self' ${base}; frame-ancestors 'none'`});res.end(body);
+    });
+    await new Promise(resolve=>frontend.listen(0,'127.0.0.1',resolve));
+    const frontendBase=`http://127.0.0.1:${frontend.address().port}`;
+    origins.push(frontendBase);
     chrome=spawn(process.env.CHROME_PATH||'C:/Program Files/Google/Chrome/Application/chrome.exe',['--headless','--no-first-run','--no-default-browser-check','--remote-debugging-port=0','--user-data-dir='+profile,'about:blank'],{stdio:'ignore',windowsHide:true});
     const portFile=path.join(profile,'DevToolsActivePort');
     for(let n=0;!fs.existsSync(portFile)&&n<100;n++)await sleep(100);
@@ -38,11 +52,16 @@ const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
     await send('Runtime.enable');await send('Page.enable');await send('Log.enable');
     for(const [width,height] of [[390,844],[320,568],[1920,1080]]){
       await send('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:width<600});
-      await send('Page.navigate',{url:base+'/admin/'});
+      await send('Page.navigate',{url:frontendBase+'/admin/'});
       await wait("!!document.getElementById('login-form')?.onsubmit");
+      await wait("document.getElementById('backend-status')?.dataset.state==='online'");
+      assert.equal(await run("document.getElementById('backend-status').textContent"),'백엔드 연결됨');
       assert.equal(await run("document.getElementById('dashboard').hidden"),true);
       await run(`document.getElementById('password').value=${JSON.stringify(password)};document.querySelector('#login-form button').click()`);
       await wait("document.querySelectorAll('#students tr').length===3");
+      await wait("document.getElementById('traffic-tx')?.textContent==='456 MB'");
+      assert.equal(await run("document.getElementById('traffic-rx').textContent"),'1.2 GB');
+      assert.equal(await run("document.getElementById('traffic-percent').textContent"),'0.005%');
       assert.equal(await run("document.getElementById('harvest-count').textContent"),'1개');
       assert.equal(await run("document.getElementById('password').value"),'');
       assert.equal(await run("document.documentElement.scrollWidth<=innerWidth"),true);
@@ -197,12 +216,30 @@ const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
       assert.equal(await run("document.querySelectorAll('#students tr').length"),0);
       assert.equal(await run("document.querySelectorAll('#teachers tr').length"),0);
     }
+    await run(`document.getElementById('password').value=${JSON.stringify(password)};document.querySelector('#login-form button').click()`);
+    await wait("document.getElementById('traffic-tx')?.textContent==='456 MB'");
+    await new Promise(resolve=>app.server.close(resolve));
+    await run("document.getElementById('check-backend').click()");
+    await wait("document.getElementById('backend-status')?.dataset.state==='offline'");
+    assert.equal(await run("document.getElementById('traffic-tx').textContent"),'456 MB');
+    assert.equal(await run("document.getElementById('traffic-note').textContent.includes('마지막으로 확인한')"),true);
+    await send('Emulation.setDeviceMetricsOverride',{width:320,height:568,deviceScaleFactor:1,mobile:true});
+    await send('Page.navigate',{url:frontendBase+'/admin/'});
+    await wait("document.getElementById('backend-status')?.dataset.state==='offline'");
+    assert.equal(await run("!!document.getElementById('login-form')?.onsubmit"),true);
+    assert.equal(await run("document.documentElement.scrollWidth<=innerWidth"),true);
+    const offlineShot=await send('Page.captureScreenshot');
+    fs.writeFileSync(path.join(os.tmpdir(),'growgame-admin-backend-offline.png'),Buffer.from(offlineShot.data,'base64'));
+    await new Promise(resolve=>app.server.listen(apiPort,'127.0.0.1',resolve));
+    await run("document.getElementById('check-backend').click()");
+    await wait("document.getElementById('backend-status')?.dataset.state==='online'");
     assert.deepEqual(errors,[]);
-    console.log('관리자 브라우저 검증 통과: 모바일 390/320px·PC, 학생 관리, 선생님 기록·통계·PIN 변경·삭제 취소/확정·세션 해제, 특별미션 3종 적용, 학생/교사 메시지 수동 전송, 미등록 교사 상태·참여 후 전송, 로그아웃');
+    console.log('관리자 브라우저 검증 통과: 별도 프론트 직접 API·백엔드 중단 중 페이지 로딩·응답 없음·복구, 모바일 390/320px·PC, 기존 학생/교사 관리·PIN·삭제·특별미션·메시지 전송');
   }finally{
     if(socket)socket.close();
     if(chrome&&chrome.exitCode===null){const exited=new Promise(resolve=>chrome.once('exit',resolve));chrome.kill();await exited;}
     if(app.server.listening)await new Promise(resolve=>app.server.close(resolve));
+    if(frontend?.listening)await new Promise(resolve=>frontend.close(resolve));
     app.store.db.close();
     assert.ok(directory.startsWith(path.resolve(os.tmpdir())+path.sep));
     await fs.promises.rm(directory,{recursive:true,force:true,maxRetries:15,retryDelay:200});

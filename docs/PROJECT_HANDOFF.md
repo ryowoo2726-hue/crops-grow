@@ -1,5 +1,19 @@
 # GrowGame 프로젝트 인수인계
 
+## 2026-11-18 Cloudflare 관리자·연결 상태·트래픽·자동 복구 (배포 준비)
+
+후속 사용자 요청: 관리자 웹을 Cloudflare 도메인에서 열고 백엔드 연결 상태와 사용 트래픽을 표시한다. 기존 학생/교사 기록 삭제·PIN 변경·특별미션·메시지 전송은 유지한다. 서버 오류 시 자동 복구를 원하며, Dots의 클라우드 컴퓨터로 관리 가능한지도 질문했다. 관리자 기본 주소를 `https://cropgrow.sangsangbar.com/admin/`로 정했다. Oracle 직접 관리자 `/admin/`도 계속 제공한다.
+
+`scripts/finalize-web.cjs`가 기존 `backend/admin` 파일을 정적 빌드 `/admin/`로 복사하고 API origin을 HTML 메타데이터와 CSP에 넣는다. 관리자 파일은 no-store이며 API 요청은 Oracle로 직접 전송한다. 허용된 프론트 Origin에서 관리자 API에 접근하도록 CORS를 변경했지만 별도 관리자 인증과 학생 세션 거부를 유지한다. 연결 배지는 로그인 전에도 15초마다 확인하고 다시 확인 버튼을 제공한다. 네트워크 실패는 서버 전원 꺼짐으로 단정하지 않고 응답 없음으로 표시하며, 서버 중단 중에도 Cloudflare 관리자 페이지를 열 수 있다.
+
+관리자 인증 후 월간 송신·수신 바이트와 무료 outbound 기준 10TB 대비 비율을 표시한다. Linux의 루프백 제외 네트워크 인터페이스 카운터를 참고 집계하며 Oracle 청구량과 다를 수 있음을 화면에 명시한다. `backend/traffic.cjs`가 현재 UTC 월의 집계를 서버 로컬 `server-traffic.json`에 원자적으로 저장한다. 재시작·재부팅·월 변경을 처리하며 수집 불가/손상은 0이 아닌 수집 불가로 반환한다. 이전 달부터 켜진 서버의 최초 실행은 수집 이후 증가량만 센다. 공개 health는 DB 조회 성공도 확인한다. 학생 DB 스키마·기록 정책은 바꾸지 않았다.
+
+로컬 백엔드 17개·트래픽 3개·빌드 해시/관리자 패키징 1개 통과. Chrome의 별도 정적 프론트→별도 API 구성에서 320/390/1920px 기존 관리 기능 전체, 트래픽 표시·학생/관리자 인증 분리·백엔드 중단 시 마지막 사용량 보존·중단 중 새 페이지 로딩·복구를 확인했다. 화면 캡처를 검토했다. 이전 Flutter analyze·test 31개와 게임 Chrome 직접 API 검증도 통과했다. 후속 변경의 Git push·Oracle 적용·Pages 배포·실제 관리자 주소 최종 확인은 남아 있다.
+
+Oracle의 `growgame.service`는 예상치 않은 종료 시 3초 뒤 재시작하도록 Restart=always를 설정했다. `growgame-healthcheck.timer`는 매분 로컬 health를 확인하고 curl 재시도 2회까지 실패하면 `growgame-recover.service`로 백엔드를 재시작한다. 설정 검증과 정상 health check 실행을 확인했다. VM 전체의 강제 재부팅은 설정하지 않았으며, Oracle VM 회수·전원 중단까지 복구하는 장치는 아니다. 의도적으로 백엔드를 중지하려면 먼저 healthcheck.timer도 중지한다.
+
+다른 PC는 그 PC에서 별도 SSH 키를 생성해 공개 키만 서버 authorized_keys에 등록한다. Dots는 공식 문서상 자체 클라우드 컴퓨터·셸 네트워크 권한을 제공하므로 허용된 환경과 별도 전용 SSH 키가 있으면 관리 구성이 가능할 것으로 설명했다. 실제 Dot 연결·새 접근 키 발급은 하지 않았으며 추가 사용량 비용 0원을 보장하지 않는다. 기존 개인 키를 클라우드나 채팅에 올리지 않는다.
+
 ## 2026-11-18 Oracle 백엔드·새 DB·직접 API 전환 (프론트 배포 검증 중)
 
 사용자는 백엔드를 Oracle 무료 계정으로 이전하고, 학생 약 200명이 동시 참여하는 일주일 행사를 운영할 계획이다. 유료 계정 업그레이드 없이 Always Free 범위만 사용한다. Cloudflare Pages는 정적 프론트를 제공하고 브라우저는 Oracle API에 직접 요청한다. 기존 Pages Functions API 중계와 Tunnel은 새 경로에서 사용하지 않는다. 사용자는 **기존 운영 기록 없이 새로 시작**하도록 명시했다. 기존 노트북 DB는 보존하며 관리자 웹의 학생/교사 기록 삭제·PIN 변경·메시지 전송과 관리자 비밀번호 설정을 유지한다.
@@ -12,7 +26,7 @@ API DNS 레코드 `053fba0a65660fed4b7142402de89cb8`을 기존 Tunnel CNAME에�
 
 `growgame-backup.timer`는 매일 한국 시간 03:00에 `/var/backups/growgame`으로 SQLite 백업한다. 첫 백업 성공, 이 PC의 `%LOCALAPPDATA%/growgame-oracle-backups`로 SCP 복사와 양쪽 SHA-256 일치를 확인했다. 서버 밖 정기 백업은 아직 자동화하지 않았다.
 
-프론트와 두 빌드 경로의 기본 API 주소를 `https://cropgrow-api.sangsangbar.com`으로 변경하고 Pages Functions 중계·전용 테스트·CI 실행을 제거했다. 직접 요청의 CORS·인증·no-store·중복 보상 회귀 검사를 보강했다. 실제 Pages production/preview의 `API_BASE_URL` 변경도 완료했다. 로컬 Flutter analyze·Flutter test 31개(전용 로컬 1개 제외)·백엔드 16개·해시 1개 통과. 한글 경로의 기존 Dart 분석 오류는 비어 있던 R: 별칭에서 재실행해 해결했다. Wasm+JS 로컬 빌드와 임시 DB·별도 API 포트의 Chrome 직접 연결 검증도 통과했다. 명단·교사·퀴즈·성장·수확·랭킹·복구·학생/교사 메시지·읽음·기념일 미션 및 3가지 화면 크기를 확인했다. Git commit·push·새 Pages 배포 확인은 남아 있다.
+프론트와 두 빌드 경로의 기본 API 주소를 `https://cropgrow-api.sangsangbar.com`으로 변경하고 Pages Functions 중계·전용 테스트·CI 실행을 제거했다. 직접 요청의 CORS·인증·no-store·중복 보상 회귀 검사를 보강했다. 실제 Pages production/preview의 `API_BASE_URL` 변경도 완료했다. 로컬 Flutter analyze·Flutter test 31개(전용 로컬 1개 제외)·백엔드 16개·해시 1개 통과. 한글 경로의 기존 Dart 분석 오류는 비어 있던 R: 별칭에서 재실행해 해결했다. Wasm+JS 로컬 빌드와 임시 DB·별도 API 포트의 Chrome 직접 연결 검증도 통과했다. 명단·교사·퀴즈·성장·수확·랭킹·복구·학생/교사 메시지·읽음·기념일 미션 및 3가지 화면 크기를 확인했다. 커밋 `be7b8ef289f78b4a225ea114656b8f9457b65b63` main push, GitHub Actions `44125456445` 성공, Pages `a390e816-7722-48d6-ac1b-341bea5d970e` 배포 성공 및 uses_functions=false를 확인했다. Oracle 코드도 해당 커밋으로 갱신했다.
 
 랭킹은 현재 약 60초 자동 갱신이며 요청마다 집계한다. 더 짧은 갱신이나 즉시 알림은 아직 구현하지 않았다. 200명이 5초마다 조회하면 랭킹만 시간당 144,000건이므로 직접 API로 전환하여 Pages Functions 무료 일일 한도를 사용하지 않게 한다. 진단 스크립트의 상한을 100→200으로 늘리고 Oracle 내부의 격리된 임시 DB에서 200명 동시 신규 등록 3회를 측정했다. 실패 0/600·각 해시 200회·최종 각 200명으로 통과했다. 회차별 최장 3.962/3.897/3.909초, p95 3.793/3.738/3.731초, RSS 최고 약 155MiB였다. 인터넷·학생 Wi-Fi를 포함한 성능 보장은 아니며 실제 플레이·잦은 랭킹 부하와 학교 Wi-Fi 실측은 남아 있다. 하루 한 번 접속만으로 유휴 회수 제외를 보장하지 않는다. Oracle 월 무료 outbound 한도는 공식 문서 기준 10TB이다.
 

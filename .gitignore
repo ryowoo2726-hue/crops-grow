@@ -6,6 +6,8 @@ coverage/
 *.sqlite
 *.sqlite-wal
 *.sqlite-shm
+server-traffic.json
+server-traffic.json.tmp
 .env
 .env.*
 !.env.example

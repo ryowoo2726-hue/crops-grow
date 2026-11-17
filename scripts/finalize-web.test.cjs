@@ -18,9 +18,17 @@ test('code and engine URLs change only when their contents change', t => {
     for (const file of ['index.html','flutter_bootstrap.js']) {
       fs.writeFileSync(path.join(root,file), '"mainJsPath":"main.dart.js"; "mainWasmPath":"main.dart.wasm"; "jsSupportRuntimePath":"main.dart.mjs"; canvasKitBaseUrl: undefined');
     }
-    return finalizeWeb(root);
+    return finalizeWeb(root,'https://api.example.test');
   }
   const first = build('code-one');
+  const adminHtml=fs.readFileSync(path.join(root,'admin','index.html'),'utf8');
+  assert.ok(adminHtml.includes('name="growgame-api-base" content="https://api.example.test"'));
+  assert.ok(adminHtml.includes('id="backend-status"'));
+  assert.ok(fs.readFileSync(path.join(root,'admin','admin.js'),'utf8').includes("apiBase+'/api/admin/'"));
+  assert.ok(fs.existsSync(path.join(root,'admin','admin.css')));
+  assert.match(fs.readFileSync(path.join(root,'_headers'),'utf8'),/connect-src 'self' https:\/\/api\.example\.test/);
+  assert.throws(()=>finalizeWeb(root,'javascript:alert(1)'),/API_BASE_URL/);
+  assert.throws(()=>finalizeWeb(root,'https://user:password@api.example.test'),/API_BASE_URL/);
   assert.deepEqual(build('code-one'),first);
   const second = build('code-two');
   assert.notEqual(second.mainUrl,first.mainUrl);

@@ -17,7 +17,7 @@ function readCredentials() {
   if (!/^[a-f0-9]{32}$/.test(value.salt) || !/^[a-f0-9]{64}$/.test(value.hash)) throw Error('관리자 비밀번호 설정 파일을 확인하세요.');
   return value;
 }
-function createAdmin(store,{credentials,now}) {
+function createAdmin(store,{credentials,now,traffic}) {
   const sessions=new Map();
   let attempts=0,lockedUntil=0;
   const tokenHash=token=>crypto.createHash('sha256').update(token).digest('hex');
@@ -42,6 +42,7 @@ function createAdmin(store,{credentials,now}) {
       reply(200,{token:session}); return;
     }
     authenticate(token);
+    if (route==='/api/admin/traffic' && method==='GET') { reply(200,traffic.snapshot()); return; }
     if (route==='/api/admin/special' && method==='GET') {
       reply(200,{mission:store.special()}); return;
     }
