@@ -50,6 +50,28 @@ const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
       assert.equal(await run("document.querySelectorAll('#students tr').length"),1);
       assert.equal(await run("document.querySelector('#students tr').textContent.includes('사과')"),true);
       assert.equal(await run("document.querySelector('#students tr').textContent.includes('50%')"),true);
+      await run("document.querySelector('[data-panel=\"teachers-panel\"]').click()");
+      await wait("document.getElementById('teachers-updated').textContent.includes('갱신')");
+      if(width===390){
+        assert.equal(await run("document.getElementById('teachers-empty').hidden"),false);
+        assert.equal(await run("document.getElementById('teacher-count').textContent"),'0명');
+        const teacher=await app.store.login({role:'teacher',name:'기록교사'},'4321');
+        const teacherId=app.store.authenticate(teacher.token);
+        app.store.db.prepare("UPDATE players SET crop_id='apple',progress=75 WHERE id=?").run(teacherId);
+        app.store.db.prepare("INSERT INTO harvests(player_id,crop_id,created_at) VALUES(?,'rice','2026-11-12T00:00:00Z')").run(teacherId);
+        await app.store.login({role:'teacher',name:'새교사'},'5678');
+      }
+      await run("document.getElementById('refresh-teachers').click()");
+      await wait("document.querySelector('#teachers')?.textContent.includes('기록교사')");
+      assert.equal(await run("document.getElementById('teacher-count').textContent"),app.store.db.prepare("SELECT COUNT(*) n FROM players WHERE role='teacher'").get().n+'명');
+      assert.equal(await run("document.getElementById('teacher-harvest-count').textContent"),'1개');
+      assert.equal(await run("[...document.querySelectorAll('#teachers tr')].find(r=>r.textContent.includes('기록교사')).textContent.includes('사과75%1개')"),true);
+      assert.equal(await run("document.getElementById('teachers-empty').hidden"),true);
+      assert.equal(await run("document.documentElement.scrollWidth<=innerWidth"),true);
+      const teacherShot=await send('Page.captureScreenshot');
+      fs.writeFileSync(path.join(os.tmpdir(),`growgame-admin-teachers-${width}.png`),Buffer.from(teacherShot.data,'base64'));
+      await run("document.querySelector('[data-panel=\"students-panel\"]').click()");
+      assert.equal(await run("document.querySelectorAll('#students tr').length"),1);
       await run("document.querySelector('.pin-button').click()");
       assert.equal(await run("document.getElementById('pin-dialog').open"),true);
       await run("document.getElementById('new-pin').value='0246';document.querySelector('#pin-form button[type=submit]').click()");
@@ -139,9 +161,10 @@ const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
       await run("document.getElementById('logout').click()");
       await wait("!document.getElementById('login').hidden");
       assert.equal(await run("document.querySelectorAll('#students tr').length"),0);
+      assert.equal(await run("document.querySelectorAll('#teachers tr').length"),0);
     }
     assert.deepEqual(errors,[]);
-    console.log('관리자 브라우저 검증 통과: 모바일 390/320px·PC, 학생 관리, 특별미션 3종 적용, 학생/교사 메시지 수동 전송, 미등록 교사 상태·참여 후 전송, 로그아웃');
+    console.log('관리자 브라우저 검증 통과: 모바일 390/320px·PC, 학생 관리, 선생님 기록·통계·빈 목록·갱신, 특별미션 3종 적용, 학생/교사 메시지 수동 전송, 미등록 교사 상태·참여 후 전송, 로그아웃');
   }finally{
     if(socket)socket.close();
     if(chrome&&chrome.exitCode===null){const exited=new Promise(resolve=>chrome.once('exit',resolve));chrome.kill();await exited;}

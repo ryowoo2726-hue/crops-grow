@@ -63,6 +63,12 @@ function createAdmin(store,{credentials,now}) {
         FROM players p WHERE p.role='student' ORDER BY p.grade,p.class_no,p.number`).all();
       reply(200,{students}); return;
     }
+    if (route==='/api/admin/teachers' && method==='GET') {
+      const teachers=store.db.prepare(`SELECT p.name,p.crop_id cropId,p.progress,
+        (SELECT COUNT(*) FROM harvests h WHERE h.player_id=p.id) harvestCount
+        FROM players p WHERE p.role='teacher' ORDER BY p.name`).all();
+      reply(200,{teachers}); return;
+    }
     if (route==='/api/admin/reset-pin' && method==='POST') {
       await store.resetPin(input.profile,input.pin);
       reply(200,{ok:true}); return;

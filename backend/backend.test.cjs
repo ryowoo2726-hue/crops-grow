@@ -622,6 +622,8 @@ test('관리자 인증, 학생 목록, PIN 변경, 권한 분리와 만료',asyn
   await app.store.login({grade:2,classNo:1,number:1},'4321');
   assert.equal((await request('/api/admin/students')).status,401);
   assert.equal((await request('/api/admin/students',{token:student.token})).status,401);
+  assert.equal((await request('/api/admin/teachers')).status,401);
+  assert.equal((await request('/api/admin/teachers',{token:student.token})).status,401);
   assert.equal((await request('/api/admin/reset-pin',{token:student.token,body:{profile,pin:'0246'}})).status,401);
   assert.equal((await request('/api/admin/session',{body:{password},origin:'https://untrusted.example'})).status,403);
   assert.equal((await request('/api/admin/session',{body:{password},origin:'http://localhost:4174'})).status,403);
@@ -631,6 +633,17 @@ test('관리자 인증, 학생 목록, PIN 변경, 권한 분리와 만료',asyn
   const login=await request('/api/admin/session',{body:{password},origin:base});
   assert.equal(login.status,200);
   const token=login.data.token;
+  assert.deepEqual((await request('/api/admin/teachers',{token})).data,{teachers:[]});
+  const teacher=await app.store.login({role:'teacher',name:' 가상교사 '},'4321');
+  const teacherId=app.store.authenticate(teacher.token);
+  for(let i=0;i<2;i++)app.store.action(teacherId,{kind:'water',requestId:'admin-teacher-water-'+i});
+  app.store.action(teacherId,{kind:'harvest',requestId:'admin-teacher-harvest'});
+  app.store.action(teacherId,{kind:'plant',cropId:'apple',requestId:'admin-teacher-plant'});
+  app.store.action(teacherId,{kind:'water',requestId:'admin-teacher-water-2'});
+  const teachers=await request('/api/admin/teachers',{token});
+  assert.equal(teachers.headers.get('cache-control'),'no-store');
+  assert.deepEqual(teachers.data,{teachers:[{name:'가상교사',cropId:'apple',progress:50,harvestCount:1}]});
+  assert.equal((await request('/api/admin/teachers',{token:teacher.token})).status,401);
   assert.equal((await request('/api/me',{token})).status,401);
   const list=await request('/api/admin/students',{token});
   assert.equal(list.headers.get('cache-control'),'no-store');
@@ -650,9 +663,11 @@ test('관리자 인증, 학생 목록, PIN 변경, 권한 분리와 만료',asyn
   for(const file of ['admin.js','admin.css']) assert.equal((await fetch(base+'/admin/'+file)).status,200);
   assert.equal((await request('/api/admin/logout',{token,body:{}})).status,200);
   assert.equal((await request('/api/admin/students',{token})).status,401);
+  assert.equal((await request('/api/admin/teachers',{token})).status,401);
   const next=(await request('/api/admin/session',{body:{password}})).data.token;
   clock+=30*60000;
   assert.equal((await request('/api/admin/students',{token:next})).status,401);
+  assert.equal((await request('/api/admin/teachers',{token:next})).status,401);
   await assert.rejects(hashPassword('x'));
 });
 
