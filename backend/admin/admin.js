@@ -18,6 +18,16 @@ async function api(route,body){
 function cell(row,text,className){const td=document.createElement('td');td.textContent=text;if(className)td.className=className;row.append(td);return td;}
 function count(id,value,unit){const small=document.createElement('small');small.textContent=unit;$(id).replaceChildren(document.createTextNode(String(value)),small);}
 function growthCell(row,progress){const growth=cell(row,'');const group=document.createElement('div');group.className='growth';const bar=document.createElement('progress');bar.max=100;bar.value=progress;bar.setAttribute('aria-label','작물 성장도');const percent=document.createElement('span');percent.textContent=`${progress}%`;group.append(bar,percent);growth.append(group);}
+function profileOf(person){return person.role==='teacher'?{role:'teacher',name:person.name}:{grade:person.grade,classNo:person.classNo,number:person.number};}
+function pinCell(row,person){
+  const pin=cell(row,'');const status=document.createElement('span');status.className='pin-status';status.textContent=person.pinConfigured?'설정됨':'미설정';pin.append(status);
+  const button=document.createElement('button');button.className='pin-button';button.textContent='변경';button.setAttribute('aria-label',participantLabel(person)+' 비밀번호 변경');
+  button.onclick=()=>{selected=person;$('pin-title').textContent=(person.role==='teacher'?'선생님':'학생')+' 비밀번호 변경';$('pin-student').textContent=participantLabel(person);$('new-pin').value='';$('pin-error').textContent='';$('pin-dialog').showModal();$('new-pin').focus();};pin.append(button);
+}
+function deleteCell(row,person){
+  const remove=document.createElement('button');remove.className='delete-button';remove.textContent='삭제';remove.setAttribute('aria-label',participantLabel(person)+(person.role==='teacher'?'':' 학생')+' 삭제');
+  remove.onclick=()=>{deleting=person;$('delete-title').textContent=(person.role==='teacher'?'선생님':'학생')+' 정보를 삭제할까요?';$('delete-student').textContent=participantLabel(person);$('delete-error').textContent='';$('delete-dialog').showModal();$('cancel-delete').focus();};cell(row,'').append(remove);
+}
 function render(){
   const list=students.filter(s=>(!$('grade').value||s.grade===Number($('grade').value))&&(!$('class-no').value||s.classNo===Number($('class-no').value)));
   count('student-count',list.length,'명');count('growing-count',list.filter(s=>s.cropId).length,'개');count('harvest-count',list.reduce((n,s)=>n+s.harvestCount,0),'개');
@@ -25,14 +35,11 @@ function render(){
   for(const student of list){
     const row=document.createElement('tr');
     cell(row,`${student.grade}학년 ${student.classNo}반`);cell(row,`${student.number}번`);
-    const pin=cell(row,'');const status=document.createElement('span');status.className='pin-status';status.textContent=student.pinConfigured?'설정됨':'미설정';pin.append(status);
-    const button=document.createElement('button');button.className='pin-button';button.textContent='변경';button.setAttribute('aria-label',`${student.grade}학년 ${student.classNo}반 ${student.number}번 비밀번호 변경`);
-    button.onclick=()=>{selected=student;$('pin-student').textContent=`${student.grade}학년 ${student.classNo}반 ${student.number}번`;$('new-pin').value='';$('pin-error').textContent='';$('pin-dialog').showModal();$('new-pin').focus();};pin.append(button);
+    pinCell(row,student);
     cell(row,student.cropId?(crops[student.cropId]||'알 수 없는 작물'):'심기 대기','crop');
     growthCell(row,student.progress);
     cell(row,`${student.harvestCount}개`,'harvest');
-    const remove=document.createElement('button');remove.className='delete-button';remove.textContent='삭제';remove.setAttribute('aria-label',`${student.grade}학년 ${student.classNo}반 ${student.number}번 학생 삭제`);
-    remove.onclick=()=>{deleting=student;$('delete-student').textContent=`${student.grade}학년 ${student.classNo}반 ${student.number}번`;$('delete-error').textContent='';$('delete-dialog').showModal();$('cancel-delete').focus();};cell(row,'').append(remove);
+    deleteCell(row,student);
     $('students').append(row);
   }
 }
@@ -44,7 +51,7 @@ async function loadTeachers(){
     if(!token||token!==session)return;
     count('teacher-count',teachers.length,'명');count('teacher-growing-count',teachers.filter(t=>t.cropId).length,'개');count('teacher-harvest-count',teachers.reduce((n,t)=>n+t.harvestCount,0),'개');
     $('teachers').replaceChildren();$('teachers-empty').hidden=teachers.length>0;
-    for(const teacher of teachers){const row=document.createElement('tr');cell(row,teacher.name);cell(row,teacher.cropId?(crops[teacher.cropId]||'알 수 없는 작물'):'심기 대기','crop');growthCell(row,teacher.progress);cell(row,`${teacher.harvestCount}개`,'harvest');$('teachers').append(row);}
+    for(const teacher of teachers){const person={...teacher,role:'teacher'};const row=document.createElement('tr');cell(row,teacher.name);pinCell(row,person);cell(row,teacher.cropId?(crops[teacher.cropId]||'알 수 없는 작물'):'심기 대기','crop');growthCell(row,teacher.progress);cell(row,`${teacher.harvestCount}개`,'harvest');deleteCell(row,person);$('teachers').append(row);}
     $('teachers-updated').textContent=new Date().toLocaleTimeString('ko-KR',{timeZone:'Asia/Seoul'})+' 갱신';
   }finally{$('refresh-teachers').disabled=false;}
 }
@@ -123,10 +130,12 @@ $('refresh-teachers').onclick=()=>loadTeachers().catch(showError);
 $('grade').onchange=render;$('class-no').onchange=render;
 $('logout').onclick=async()=>{try{await api('logout',{});}catch(error){$('message').textContent=error.message;}finally{signedOut();$('password').focus();}};
 $('cancel-pin').onclick=()=>{$('pin-dialog').close();};
-$('pin-dialog').onclose=()=>{$('new-pin').value='';selected=null;};
+$('pin-dialog').onclose=()=>{if(!$('pin-dialog').open){$('new-pin').value='';selected=null;}};
+$('pin-dialog').oncancel=event=>{if($('cancel-pin').disabled)event.preventDefault();};
 $('pin-form').onsubmit=async event=>{
   event.preventDefault();if(!selected)return;const button=event.submitter;button.disabled=true;$('cancel-pin').disabled=true;$('pin-error').textContent='';
-  try{await api('reset-pin',{profile:{grade:selected.grade,classNo:selected.classNo,number:selected.number},pin:$('new-pin').value});$('pin-dialog').close();$('new-pin').value='';await refresh();$('message').textContent='학생 비밀번호를 변경했습니다. 새 비밀번호를 학생에게 직접 알려주세요.';}
+  const person=selected,session=token;
+  try{await api('reset-pin',{profile:profileOf(person),pin:$('new-pin').value});if(token!==session||!token)return;$('pin-dialog').close();$('new-pin').value='';await refresh();$('message').textContent=(person.role==='teacher'?'선생님':'학생')+' 비밀번호를 변경했습니다. 새 비밀번호를 본인에게 직접 알려주세요.';}
   catch(error){if($('pin-dialog').open)$('pin-error').textContent=error.message;else $('message').textContent=error.message;}
   finally{button.disabled=false;$('cancel-pin').disabled=false;}
 };
@@ -135,13 +144,14 @@ $('delete-dialog').onclose=()=>{if(!$('delete-dialog').open)deleting=null;};
 $('delete-dialog').oncancel=event=>{if($('confirm-delete').disabled)event.preventDefault();};
 $('delete-form').onsubmit=async event=>{
   event.preventDefault();if(!deleting||$('confirm-delete').disabled)return;
-  const student=deleting,session=token;
-  const profile={grade:student.grade,classNo:student.classNo,number:student.number};
+  const person=deleting,session=token,teacher=person.role==='teacher';
+  const profile=profileOf(person);
   $('confirm-delete').disabled=true;$('cancel-delete').disabled=true;$('delete-error').textContent='';
   try{
-    await api('delete-student',{profile});if(token!==session||!token)return;
-    students=students.filter(s=>s.grade!==profile.grade||s.classNo!==profile.classNo||s.number!==profile.number);
-    $('delete-dialog').close();render();$('message').textContent=`${profile.grade}학년 ${profile.classNo}반 ${profile.number}번 학생과 게임 기록을 삭제했습니다.`;
+    await api(teacher?'delete-teacher':'delete-student',teacher?{name:person.name}:{profile});if(token!==session||!token)return;
+    $('delete-dialog').close();
+    if(teacher)await loadTeachers();else{students=students.filter(s=>s.grade!==profile.grade||s.classNo!==profile.classNo||s.number!==profile.number);render();}
+    $('message').textContent=participantLabel(person)+(teacher?'의':' 학생과')+' 게임 기록을 삭제했습니다.';
   }catch(error){if($('delete-dialog').open)$('delete-error').textContent=error.message;else $('message').textContent=error.message;}
   finally{$('confirm-delete').disabled=false;$('cancel-delete').disabled=false;}
 };

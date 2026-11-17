@@ -65,6 +65,7 @@ function createAdmin(store,{credentials,now}) {
     }
     if (route==='/api/admin/teachers' && method==='GET') {
       const teachers=store.db.prepare(`SELECT p.name,p.crop_id cropId,p.progress,
+        CASE WHEN p.pin_hash<>'' THEN 1 ELSE 0 END pinConfigured,
         (SELECT COUNT(*) FROM harvests h WHERE h.player_id=p.id) harvestCount
         FROM players p WHERE p.role='teacher' ORDER BY p.name`).all();
       reply(200,{teachers}); return;
@@ -75,6 +76,10 @@ function createAdmin(store,{credentials,now}) {
     }
     if (route==='/api/admin/delete-student' && method==='POST') {
       store.deleteStudent(input.profile);
+      reply(200,{ok:true}); return;
+    }
+    if (route==='/api/admin/delete-teacher' && method==='POST') {
+      store.deleteTeacher(input.name);
       reply(200,{ok:true}); return;
     }
     throw new ApiError(404,'요청한 관리자 기능을 찾을 수 없습니다.');

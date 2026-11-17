@@ -174,28 +174,46 @@ function openStore(directory, {now = Date.now, dailyLimit = false} = {}) {
     if (!session) fail(401,'다시 입장해 주세요.');
     return session.player_id;
   }
+  function managedPlayer(profile) {
+    if (!profile || typeof profile!=='object' || Array.isArray(profile)) fail(400,'참여 정보를 확인하세요.');
+    let player;
+    if (profile.role==='teacher') {
+      if (typeof profile.name!=='string') fail(400,'선생님 성함을 확인하세요.');
+      const name=profile.name.normalize('NFC').trim();
+      if (!name || name.length>50 || /[\p{Cc}\p{Cf}]/u.test(name)) fail(400,'선생님 성함을 확인하세요.');
+      player=db.prepare("SELECT id,pin_salt FROM players WHERE role='teacher' AND name=?").get(name);
+    } else {
+      if ((profile.role??'student')!=='student' || !Number.isInteger(profile.grade) || profile.grade<1 || profile.grade>3 ||
+          ![profile.classNo,profile.number].every(n=>Number.isInteger(n)&&n>=1&&n<=99)) fail(400,'학생의 학년·반·번호를 확인하세요.');
+      player=db.prepare("SELECT id,pin_salt FROM players WHERE role='student' AND grade=? AND class_no=? AND number=?").get(profile.grade,profile.classNo,profile.number);
+    }
+    if (!player) fail(404,'등록된 참여자가 아닙니다.');
+    return player;
+  }
   async function resetPin(profile, pin) {
-    if (!profile || ![profile.grade,profile.classNo,profile.number].every(Number.isInteger) || typeof pin!=='string' || !/^\d{4}$/.test(pin)) fail(400,'참여 정보와 4자리 PIN을 확인하세요.');
-    const player=db.prepare('SELECT id,pin_salt FROM players WHERE grade=? AND class_no=? AND number=?').get(profile.grade,profile.classNo,profile.number);
-    if(!player) fail(404,'등록된 학생이 아닙니다.');
+    if (typeof pin!=='string' || !/^\d{4}$/.test(pin)) fail(400,'숫자 4자리 PIN을 확인하세요.');
+    const player=managedPlayer(profile);
     const salt=crypto.randomBytes(16).toString('hex');
     const hash=(await scrypt(pin,salt,32)).toString('hex');
     db.exec('BEGIN IMMEDIATE');
     try {
-      if (getPlayer(player.id)?.pin_salt !== player.pin_salt) fail(409,'학생 정보가 변경되었습니다. 목록을 새로고침하세요.');
+      if (getPlayer(player.id)?.pin_salt !== player.pin_salt) fail(409,'참여 정보가 변경되었습니다. 목록을 새로고침하세요.');
       db.prepare('UPDATE players SET pin_salt=?,pin_hash=?,failed_attempts=0,locked_until=0 WHERE id=?').run(salt,hash,player.id);
       db.prepare('DELETE FROM sessions WHERE player_id=?').run(player.id);
       db.exec('COMMIT');
     } catch(error) { db.exec('ROLLBACK'); throw error; }
   }
   function deleteStudent(profile) {
-    if (!profile || !Number.isInteger(profile.grade) || profile.grade<1 || profile.grade>3 ||
-        !Number.isInteger(profile.classNo) || profile.classNo<1 || profile.classNo>99 ||
-        !Number.isInteger(profile.number) || profile.number<1 || profile.number>99) fail(400,'삭제할 학생의 학년·반·번호를 확인하세요.');
+    if (profile?.role && profile.role!=='student') fail(400,'삭제할 학생 정보를 확인하세요.');
+    return deletePlayer(profile);
+  }
+  function deleteTeacher(name) {
+    return deletePlayer({role:'teacher',name});
+  }
+  function deletePlayer(profile) {
     db.exec('BEGIN IMMEDIATE');
     try {
-      const player=db.prepare('SELECT id FROM players WHERE grade=? AND class_no=? AND number=?').get(profile.grade,profile.classNo,profile.number);
-      if (!player) fail(404,'등록된 학생이 아닙니다.');
+      const player=managedPlayer(profile);
       for (const table of ['sessions','harvests','quiz_answers','action_receipts']) {
         db.prepare(`DELETE FROM ${table} WHERE player_id=?`).run(player.id);
       }
@@ -332,6 +350,6 @@ function openStore(directory, {now = Date.now, dailyLimit = false} = {}) {
     if (!input || !validWeek(input.week) || typeof input.title!=='string' || !input.title.trim() || input.title.length>60 || typeof input.description!=='string' || !input.description.trim() || input.description.length>600) fail(400,'특별 미션의 월요일 날짜, 제목과 내용을 확인하세요.');
     db.prepare('INSERT INTO special_missions(week,title,description) VALUES(?,?,?) ON CONFLICT(week) DO UPDATE SET title=excluded.title,description=excluded.description,revision=revision+1').run(input.week,input.title.trim(),input.description.trim());
   }
-  return {db,login,resetPin,deleteStudent,authenticate,snapshot,quiz,checkAnswer,special,action,garden,rankings,importQuiz,importSpecial,quizBank,importRoster,loginOptions,specialMissions};
+  return {db,login,resetPin,deleteStudent,deleteTeacher,authenticate,snapshot,quiz,checkAnswer,special,action,garden,rankings,importQuiz,importSpecial,quizBank,importRoster,loginOptions,specialMissions};
 }
 module.exports = {openStore,ApiError,dayAt,weekAt};

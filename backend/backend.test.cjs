@@ -642,7 +642,7 @@ test('관리자 인증, 학생 목록, PIN 변경, 권한 분리와 만료',asyn
   app.store.action(teacherId,{kind:'water',requestId:'admin-teacher-water-2'});
   const teachers=await request('/api/admin/teachers',{token});
   assert.equal(teachers.headers.get('cache-control'),'no-store');
-  assert.deepEqual(teachers.data,{teachers:[{name:'가상교사',cropId:'apple',progress:50,harvestCount:1}]});
+  assert.deepEqual(teachers.data,{teachers:[{name:'가상교사',cropId:'apple',progress:50,pinConfigured:1,harvestCount:1}]});
   assert.equal((await request('/api/admin/teachers',{token:teacher.token})).status,401);
   assert.equal((await request('/api/me',{token})).status,401);
   const list=await request('/api/admin/students',{token});
@@ -721,6 +721,79 @@ test('관리자 학생 삭제: 권한, 전체 기록 정리, 롤백, 재등록�
   assert.equal(results[0].reason.status,401);assert.equal(results[1].reason.status,409);
   assert.equal((await app.store.login(profile,'5678')).state.progress,0);
   assert.equal(app.store.snapshot(app.store.authenticate(replacement.token)).harvestCount,0);
+});
+
+test('선생님 관리: PIN 변경·권한·전체 기록 삭제·롤백·이름 정규화·재등록 경쟁',async t=>{
+  const directory=fs.mkdtempSync(path.join(os.tmpdir(),'growgame-teacher-admin-'));
+  const app=createBackend({directory,now:()=>Date.parse('2026-11-17T00:00:00Z'),adminCredentials:await hashPassword('8642')});
+  await new Promise(resolve=>app.server.listen(0,'127.0.0.1',resolve));
+  t.after(async()=>{await new Promise(resolve=>app.server.close(resolve));app.store.db.close();assert.ok(directory.startsWith(path.resolve(os.tmpdir())+path.sep));fs.rmSync(directory,{recursive:true,force:true});});
+  const base=`http://127.0.0.1:${app.server.address().port}`;
+  const request=async(route,body,token,origin)=>{const r=await fetch(base+'/api/admin/'+route,{method:'POST',headers:{'Content-Type':'application/json',...(token?{Authorization:'Bearer '+token}:{}),...(origin?{Origin:origin}:{})},body:JSON.stringify(body)});return {status:r.status,data:await r.json()};};
+  const profile={role:'teacher',name:'관리교사'};
+  app.store.importRoster([{grade:1,classNo:1,number:1,name:'관리교사'}]);
+  const teacher=await app.store.login(profile,'1234'),id=app.store.authenticate(teacher.token);
+  const second=await app.store.login(profile,'1234');
+  const student=await app.store.login({grade:1,classNo:1,number:1},'4321');
+  const studentId=app.store.authenticate(student.token);
+  const other=await app.store.login({role:'teacher',name:'다른교사'},'4321');
+  for(let i=0;i<2;i++)app.store.action(id,{kind:'water',requestId:'teacher-admin-water-'+i});
+  app.store.action(id,{kind:'harvest',requestId:'teacher-admin-harvest'});
+  app.store.action(id,{kind:'plant',cropId:'apple',requestId:'teacher-admin-plant'});
+  app.store.importQuiz({week:'2026-11-16',questions:[{question:'관리 검증',choices:['가','나','다','라'],correctIndex:0}]});
+  const quiz=app.store.quiz();app.store.checkAnswer(id,{week:quiz.week,revision:quiz.revision,questionId:quiz.questions[0].id,answerIndex:0});
+  app.store.quizBank.importSets({sets:[{id:'admin-teacher-set',subject:'영어',title:'검증',questions:Array.from({length:10},(_,i)=>({question:'검증 '+i,choices:['가','나','다','라'],correctIndex:0}))}]});
+  app.store.quizBank.start(id,{subject:'영어'});
+  const mission=app.store.specialMissions.activate({kind:'gratitude',requestId:'teacher-admin-gratitude'});
+  app.store.specialMissions.submit(id,{missionId:mission.id,requestId:'teacher-admin-sent-message',recipient:{grade:1,classNo:1,number:1},message:'항상 친절하게 도와주어서 정말 고맙습니다.'});
+  const incoming=app.store.specialMissions.submit(studentId,{missionId:mission.id,requestId:'teacher-admin-received-message',recipient:profile,message:'항상 따뜻하게 가르쳐 주셔서 정말 감사합니다.'});
+  app.store.specialMissions.deliver(incoming.id);
+  const special=app.store.specialMissions.activate({kind:'patriots',requestId:'teacher-admin-special'});
+  app.store.specialMissions.submitQuiz(id,{missionId:special.id,answers:Array(10).fill(0)});
+  const beforeState=app.store.snapshot(id),studentState=app.store.snapshot(studentId);
+  const admin=(await request('session',{password:'8642'})).data.token;
+  for(const route of ['reset-pin','delete-teacher']){
+    const body=route==='reset-pin'?{profile,pin:'0246'}:{name:profile.name};
+    for(const token of [undefined,student.token,teacher.token])assert.equal((await request(route,body,token)).status,401);
+    assert.equal((await request(route,body,admin,'https://untrusted.example')).status,403);
+  }
+  for(const name of [undefined,null,'',' ','가\n나','가'.repeat(51)]){
+    assert.equal((await request('delete-teacher',{name},admin)).status,400);
+    assert.equal((await request('reset-pin',{profile:{role:'teacher',name},pin:'0246'},admin)).status,400);
+  }
+  assert.equal((await request('delete-teacher',{name:'없는교사'},admin)).status,404);
+  assert.equal((await request('reset-pin',{profile,pin:'12'},admin)).status,400);
+  assert.equal((await request('delete-student',{profile},admin)).status,400);
+  const normalized={role:'teacher',name:'  '+profile.name.normalize('NFD')+'  '};
+  assert.equal((await request('reset-pin',{profile:normalized,pin:'0246'},admin)).status,200);
+  for(const token of [teacher.token,second.token])assert.throws(()=>app.store.authenticate(token),e=>e.status===401);
+  await assert.rejects(app.store.login(profile,'1234'),e=>e.status===401);
+  const changed=await app.store.login(profile,'0246');
+  assert.deepEqual(changed.state,beforeState);
+  const tables=['sessions','harvests','quiz_answers','action_receipts','quiz_runs','gratitude_messages','special_quiz_results'];
+  const counts=()=>tables.map(table=>app.store.db.prepare(`SELECT COUNT(*) n FROM ${table} WHERE player_id=?`).get(id).n);
+  const before=counts();assert.ok(before.every(n=>n>0));
+  app.store.db.exec(`CREATE TRIGGER block_teacher_delete BEFORE DELETE ON players WHEN OLD.id=${id} BEGIN SELECT RAISE(ABORT,'test teacher rollback'); END`);
+  assert.throws(()=>app.store.deleteTeacher(profile.name),/test teacher rollback/);
+  assert.deepEqual(counts(),before);assert.equal(app.store.authenticate(changed.token),id);
+  app.store.db.exec('DROP TRIGGER block_teacher_delete');
+  assert.equal((await request('delete-teacher',{name:normalized.name},admin)).status,200);
+  assert.deepEqual(counts(),tables.map(()=>0));
+  assert.throws(()=>app.store.authenticate(changed.token),e=>e.status===401);
+  assert.deepEqual(app.store.snapshot(studentId),studentState);
+  assert.equal(app.store.snapshot(app.store.authenticate(other.token)).profile.name,'다른교사');
+  assert.equal(app.store.db.prepare('SELECT COUNT(*) n FROM gratitude_messages WHERE id=?').get(incoming.id).n,1);
+  assert.equal(app.store.specialMissions.review('all',0).items[0].recipientRegistered,false);
+  assert.deepEqual(app.store.db.prepare('PRAGMA foreign_key_check').all(),[]);
+  assert.equal((await request('delete-teacher',{name:profile.name},admin)).status,404);
+  const fresh=await app.store.login(profile,'1357');assert.equal(fresh.state.harvestCount,0);assert.equal(fresh.state.progress,0);
+  const pending=Promise.allSettled([app.store.login(profile,'1357'),app.store.resetPin(profile,'2468')]);
+  app.store.deleteTeacher(profile.name);
+  const replacement=await app.store.login(profile,'5678');
+  const results=await pending;assert.ok(results.every(r=>r.status==='rejected'));
+  assert.equal(results[0].reason.status,401);assert.equal(results[1].reason.status,409);
+  assert.equal((await app.store.login(profile,'5678')).state.harvestCount,0);
+  assert.equal(app.store.authenticate(replacement.token)>0,true);
 });
 
 test('관리자 비밀번호 미설정 시 로그인 차단',async t=>{
