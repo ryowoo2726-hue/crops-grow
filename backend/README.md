@@ -10,13 +10,13 @@
 
 다른 Windows PC의 SSH 키는 해당 PC에서 `ssh-keygen -t ed25519 -f "$env:USERPROFILE\.ssh\growgame-oracle"`로 만듭니다. `.ssh` 폴더가 없으면 먼저 생성하고 같은 이름의 키가 있으면 다른 파일명을 선택합니다. 생성된 `.pub` 공개 키만 서버의 `~/.ssh/authorized_keys`에 추가합니다. 개인 키는 로컬에 보관하며 Git·채팅에 넣지 않습니다. Dots에 연결할 때도 클라우드 환경에서 별도 전용 키를 만들고 필요한 관리 권한만 허용하는 방식을 사용합니다.
 
-## Oracle 무료 VM 직접 연결 준비 (2026-11-18)
+## Oracle 무료 VM 직접 연결 완료 (2026-11-18)
 
-브라우저가 Oracle 무료 VM의 `https://cropgrow-api.sangsangbar.com/api/*`에 직접 요청합니다. Pages Functions 중계 코드는 제거했으며 Cloudflare Pages는 정적 프론트 파일만 제공합니다. 프론트와 두 빌드 경로, 실제 Pages production/preview 환경변수의 API 주소를 변경했습니다. Oracle API DNS·HTTPS 전환은 완료했고 프론트 GitHub 업로드·Pages 배포는 인수인계 최상단의 완료 상태를 확인하세요.
+브라우저가 Oracle 무료 VM의 `https://cropgrow-api.sangsangbar.com/api/*`에 직접 요청합니다. Pages Functions 중계 코드는 제거했으며 Cloudflare Pages는 게임·관리자 정적 파일을 제공합니다. 프론트와 두 빌드 경로, 실제 Pages production/preview 환경변수의 API 주소를 변경했습니다. Oracle API DNS·HTTPS 전환, GitHub 업로드·Pages 배포와 실제 관리자 주소 검증을 완료했습니다. 최종 식별자와 테스트 결과는 인수인계 최상단을 확인하세요.
 
 Oracle의 ARM 2코어·약 12GB RAM과 Ubuntu 26.04.1 LTS, SSH 접속을 확인했습니다. Node.js 24 LTS로 백엔드를 실행하고 Caddy가 HTTPS를 처리합니다. 백엔드는 `127.0.0.1:8787`을 유지하고 `FRONTEND_ORIGINS=https://cropgrow.sangsangbar.com`, `GROWGAME_OPEN_ADMIN=0`을 설정합니다. Windows 시작 스크립트와 Tunnel은 Oracle에서 사용하지 않습니다.
 
-사용자 지시에 따라 새 운영 DB `/var/lib/growgame/growgame.sqlite`로 시작합니다. 이전 노트북 DB는 보존합니다. 명단 990명·문제은행·기존 관리자 해시 설정을 안전하게 이전했으며 실제 참여 기록은 비어 있습니다. 관리자 주소는 `https://cropgrow-api.sangsangbar.com/admin/`이고 기존 학생/교사 기록 삭제·PIN 변경·메시지 전송 기능을 제공합니다. 비밀·학생 자료를 Git에 넣지 않으며 공식 기록과 정답은 계속 백엔드 SQLite가 기준입니다.
+사용자 지시에 따라 새 운영 DB `/var/lib/growgame/growgame.sqlite`로 시작합니다. 이전 노트북 DB는 보존합니다. 명단 990명·문제은행·기존 관리자 해시 설정을 안전하게 이전했으며 실제 참여 기록은 새로 시작합니다. 관리자 기본 주소는 위의 Cloudflare `/admin/`이며 직접 API 도메인의 `/admin/`도 계속 사용할 수 있습니다. 비밀·학생 자료를 Git에 넣지 않으며 공식 기록과 정답은 계속 백엔드 SQLite가 기준입니다.
 
 Oracle 보안 목록과 OS 방화벽에서 웹용 80·443을 허용했으며 8787은 외부에 열지 않습니다. API DNS는 Oracle 공인 IPv4를 가리키는 A 레코드(DNS only)입니다. Node.js 24.22.3·Caddy 2.11.9·백엔드 자동 시작을 설정했고 실제 도메인의 health·관리자 화면·CORS를 확인했습니다. 일일 백업은 한국 시간 03:00에 `/var/backups/growgame`에 생성합니다. 첫 백업은 이 PC의 `%LOCALAPPDATA%/growgame-oracle-backups`에도 복사했고 해시 일치를 확인했습니다. 서버 밖 정기 백업은 자동화하지 않았습니다.
 

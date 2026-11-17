@@ -1,6 +1,6 @@
 # GrowGame 프로젝트 인수인계
 
-## 2026-11-18 Cloudflare 관리자·연결 상태·트래픽·자동 복구 (배포 준비)
+## 2026-11-18 Cloudflare 관리자·연결 상태·트래픽·자동 복구 완료
 
 후속 사용자 요청: 관리자 웹을 Cloudflare 도메인에서 열고 백엔드 연결 상태와 사용 트래픽을 표시한다. 기존 학생/교사 기록 삭제·PIN 변경·특별미션·메시지 전송은 유지한다. 서버 오류 시 자동 복구를 원하며, Dots의 클라우드 컴퓨터로 관리 가능한지도 질문했다. 관리자 기본 주소를 `https://cropgrow.sangsangbar.com/admin/`로 정했다. Oracle 직접 관리자 `/admin/`도 계속 제공한다.
 
@@ -8,13 +8,17 @@
 
 관리자 인증 후 월간 송신·수신 바이트와 무료 outbound 기준 10TB 대비 비율을 표시한다. Linux의 루프백 제외 네트워크 인터페이스 카운터를 참고 집계하며 Oracle 청구량과 다를 수 있음을 화면에 명시한다. `backend/traffic.cjs`가 현재 UTC 월의 집계를 서버 로컬 `server-traffic.json`에 원자적으로 저장한다. 재시작·재부팅·월 변경을 처리하며 수집 불가/손상은 0이 아닌 수집 불가로 반환한다. 이전 달부터 켜진 서버의 최초 실행은 수집 이후 증가량만 센다. 공개 health는 DB 조회 성공도 확인한다. 학생 DB 스키마·기록 정책은 바꾸지 않았다.
 
-로컬 백엔드 17개·트래픽 3개·빌드 해시/관리자 패키징 1개 통과. Chrome의 별도 정적 프론트→별도 API 구성에서 320/390/1920px 기존 관리 기능 전체, 트래픽 표시·학생/관리자 인증 분리·백엔드 중단 시 마지막 사용량 보존·중단 중 새 페이지 로딩·복구를 확인했다. 화면 캡처를 검토했다. 이전 Flutter analyze·test 31개와 게임 Chrome 직접 API 검증도 통과했다. 후속 변경의 Git push·Oracle 적용·Pages 배포·실제 관리자 주소 최종 확인은 남아 있다.
+로컬 백엔드 17개·트래픽 3개·빌드 해시/관리자 패키징 1개 통과. Chrome의 별도 정적 프론트→별도 API 구성에서 320/390/1920px 기존 관리 기능 전체, 트래픽 표시·학생/관리자 인증 분리·백엔드 중단 시 마지막 사용량 보존·중단 중 새 페이지 로딩·복구를 확인했다. 화면 캡처를 검토했다. 이전 Flutter analyze·test 31개와 게임 Chrome 직접 API 검증도 통과했다. 기능 커밋 `15b57e0636bf87f8b8261de39102f8f648a5b910` main push·Oracle 적용·재시작 완료. GitHub Actions `44128616607` 성공, Pages `32c3c109-edef-4a21-9eb0-c8e5d04294fc` 배포 성공과 uses_functions=false를 확인했다.
 
-Oracle의 `growgame.service`는 예상치 않은 종료 시 3초 뒤 재시작하도록 Restart=always를 설정했다. `growgame-healthcheck.timer`는 매분 로컬 health를 확인하고 curl 재시도 2회까지 실패하면 `growgame-recover.service`로 백엔드를 재시작한다. 설정 검증과 정상 health check 실행을 확인했다. VM 전체의 강제 재부팅은 설정하지 않았으며, Oracle VM 회수·전원 중단까지 복구하는 장치는 아니다. 의도적으로 백엔드를 중지하려면 먼저 healthcheck.timer도 중지한다.
+실제 `https://cropgrow.sangsangbar.com/admin/`과 JS·CSS 응답, Oracle API 메타데이터·CSP·no-store를 확인했고 새 Chrome 프로필의 읽기 전용 실제 브라우저에서 백엔드 연결됨 표시와 화면을 검토했다. 실제 게임 도메인의 JS가 직접 Oracle API 주소를 포함하며 Wasm/MJS/JS HTTP 200도 확인했다. Oracle ARM에서도 백엔드 17개·트래픽 3개가 통과했다. 실제 관리자 트래픽 API의 비인증 401·프론트 CORS 204, 네트워크 집계 파일의 실측 값 저장을 확인했다. 실제 관리자 비밀번호를 이용한 운영 로그인·실제 학생 기록의 변경/삭제는 하지 않았으며 쓰기 기능은 격리된 DB로 검증했다.
+
+Oracle의 `growgame.service`는 예상치 않은 종료 시 3초 뒤 재시작하도록 Restart=always를 설정했다. `growgame-healthcheck.timer`는 매분 로컬 health를 확인하고 curl 재시도 2회까지 실패하면 `growgame-recover.service`로 백엔드를 재시작한다. 설정 검증과 정상 health check 실행을 확인했다. 실제 참여자가 0명인 것을 확인한 뒤 해당 Node 메인 프로세스만 SIGKILL로 종료해 자동 복구를 시험했다. NRestarts 0→1, health 복구·SQLite integrity_check 정상·참여자 0명·명단 990명 보존을 확인했다. VM 전체의 강제 재부팅은 설정하지 않았으며, Oracle VM 회수·전원 중단까지 복구하는 장치는 아니다. 의도적으로 백엔드를 중지하려면 먼저 healthcheck.timer도 중지한다.
 
 다른 PC는 그 PC에서 별도 SSH 키를 생성해 공개 키만 서버 authorized_keys에 등록한다. Dots는 공식 문서상 자체 클라우드 컴퓨터·셸 네트워크 권한을 제공하므로 허용된 환경과 별도 전용 SSH 키가 있으면 관리 구성이 가능할 것으로 설명했다. 실제 Dot 연결·새 접근 키 발급은 하지 않았으며 추가 사용량 비용 0원을 보장하지 않는다. 기존 개인 키를 클라우드나 채팅에 올리지 않는다.
 
-## 2026-11-18 Oracle 백엔드·새 DB·직접 API 전환 (프론트 배포 검증 중)
+검증용 정적 서버와 Oracle 부하 시험 도우미를 종료·정리하고 R: 별칭도 해제했다. 스크린샷·원시 부하 보고서는 임시 폴더에 남긴다. 새 실제 사이트 읽기 검증의 임시 Chrome 프로필 폴더 삭제는 자동 승인 검토에서 정책상 차단되어 보존했다. Git 유지보수에서 경고하던 오래된 빈 packed-refs.lock은 Git 프로세스가 없는 것을 확인하고 임시 백업으로 이동했다. 사용자의 기존 `.ua/` 미추적 폴더는 그대로 두었다. 최종 완료 기록은 `[skip ci]` 문서 커밋으로 저장한다. 짧은 주기의 게임 랭킹 갱신은 아직 60초이며 학교 Wi-Fi 200대 실측·서버 밖 정기 백업 자동화는 별도 남은 항목이다.
+
+## 2026-11-18 Oracle 백엔드·새 DB·직접 API 전환 완료
 
 사용자는 백엔드를 Oracle 무료 계정으로 이전하고, 학생 약 200명이 동시 참여하는 일주일 행사를 운영할 계획이다. 유료 계정 업그레이드 없이 Always Free 범위만 사용한다. Cloudflare Pages는 정적 프론트를 제공하고 브라우저는 Oracle API에 직접 요청한다. 기존 Pages Functions API 중계와 Tunnel은 새 경로에서 사용하지 않는다. 사용자는 **기존 운영 기록 없이 새로 시작**하도록 명시했다. 기존 노트북 DB는 보존하며 관리자 웹의 학생/교사 기록 삭제·PIN 변경·메시지 전송과 관리자 비밀번호 설정을 유지한다.
 

@@ -1,6 +1,6 @@
 ﻿# 마석중학교 농작물 키우기
 
-Flutter Web 프론트와 Node.js + SQLite 백엔드입니다. 백엔드를 Oracle 무료 VM으로 이전하고 있습니다.
+Flutter Web 프론트와 Oracle 무료 VM에서 실행하는 Node.js + SQLite 백엔드입니다.
 
 **다른 AI 또는 다음 작업은 [프로젝트 인수인계 문서](docs/PROJECT_HANDOFF.md)를 먼저 읽어주세요.** 현재 상태·규칙·API·DB·검증·주의할 오류와 남은 작업을 기록합니다.
 
@@ -8,7 +8,7 @@ Flutter Web 프론트와 Node.js + SQLite 백엔드입니다. 백엔드를 Oracl
 - 게임 API: `https://cropgrow-api.sangsangbar.com/api/*` (브라우저에서 백엔드에 직접 요청)
 - 직접 API: `https://cropgrow-api.sangsangbar.com`
 - 관리자 웹: `https://cropgrow.sangsangbar.com/admin/` — 연결 상태와 월간 참고 트래픽 표시, 기존 기록 관리 기능 유지
-- GitHub `main`과 Cloudflare Pages `cropgrow`를 연결했습니다. push하면 자동 배포됩니다. 2026-11-18 Pages Functions API 중계를 제거하고 직접 API 주소를 기본값으로 변경했습니다. Oracle의 새 DB·명단·관리자·HTTPS·API DNS 전환과 자동 시작·일일 백업 설정은 완료했으며 프론트 배포를 준비 중입니다. 최신 완료/미완료 상태는 인수인계 최상단을 확인하세요. 이전 노트북 연결의 측정 결과는 [인터넷 성능 보고서](docs/INTERNET_PERFORMANCE_REPORT.md)에 있습니다.
+- GitHub `main`과 Cloudflare Pages `cropgrow`를 연결했습니다. push하면 자동 배포됩니다. 2026-11-18 Oracle 직접 API·새 DB·명단·관리자·HTTPS·DNS 전환과 프론트 배포를 완료했습니다. Pages Functions는 사용하지 않습니다. 관리자 연결 상태·월간 참고 트래픽, 백엔드 자동 시작·오류 복구·일일 백업을 설정했습니다. 최종 검증과 남은 현장 검증은 인수인계 최상단을 확인하세요. 이전 노트북 연결의 측정 결과는 [인터넷 성능 보고서](docs/INTERNET_PERFORMANCE_REPORT.md)에 있습니다.
 
 ## 웹 로딩 최적화 (2026-11-11)
 
@@ -22,7 +22,7 @@ Flutter Web 프론트와 Node.js + SQLite 백엔드입니다. 백엔드를 Oracl
 
 ## 실행과 배포
 
-Oracle 운영은 백엔드를 `127.0.0.1:8787`에서 실행하고 Caddy가 HTTPS API를 제공합니다. Cloudflare Pages는 화면·이미지·폰트를 제공하며 데이터 요청을 중계하지 않습니다. Pages의 production/preview `API_BASE_URL`도 `https://cropgrow-api.sangsangbar.com`으로 맞춰야 합니다. 직접 연결은 기존 서버 인증·SQLite 저장 정책을 유지합니다. [Oracle 실행 준비](backend/README.md)를 확인하세요.
+Oracle 운영은 백엔드를 `127.0.0.1:8787`에서 실행하고 Caddy가 HTTPS API를 제공합니다. Cloudflare Pages는 게임·관리자 화면·이미지·폰트를 제공하며 데이터 요청을 중계하지 않습니다. Pages production/preview `API_BASE_URL`도 `https://cropgrow-api.sangsangbar.com`으로 설정했습니다. 직접 연결은 기존 서버 인증·SQLite 저장 정책을 유지합니다. [백엔드 실행·관리](backend/README.md)를 확인하세요.
 
 아래 Windows 실행 방법은 기존 노트북 운영·로컬 검증용입니다.
 
