@@ -1,5 +1,21 @@
 # GrowGame 프로젝트 인수인계
 
+## 2026-11-18 Oracle 백엔드·새 DB·직접 API 전환 (프론트 배포 검증 중)
+
+사용자는 백엔드를 Oracle 무료 계정으로 이전하고, 학생 약 200명이 동시 참여하는 일주일 행사를 운영할 계획이다. 유료 계정 업그레이드 없이 Always Free 범위만 사용한다. Cloudflare Pages는 정적 프론트를 제공하고 브라우저는 Oracle API에 직접 요청한다. 기존 Pages Functions API 중계와 Tunnel은 새 경로에서 사용하지 않는다. 사용자는 **기존 운영 기록 없이 새로 시작**하도록 명시했다. 기존 노트북 DB는 보존하며 관리자 웹의 학생/교사 기록 삭제·PIN 변경·메시지 전송과 관리자 비밀번호 설정을 유지한다.
+
+Oracle 인스턴스 `cropgrow`, 공인 IPv4 `158.101.141.124`에 SSH 접속했다. ARM aarch64·2코어·RAM 11,924MiB·Ubuntu 26.04.1 LTS·루트 디스크 약 45GiB를 확인했다. 개인 키의 Windows ACL이 너무 넓어 첫 접속이 거절되어 현재 사용자만 읽도록 제한한 뒤 성공했다. 키는 프로젝트 밖 로컬 파일이며 원문을 출력하거나 Git에 넣지 않는다. 콘솔 자동화는 도구가 Windows 브라우저 URL을 확인하지 못해 중단했다. 사용자가 직접 Oracle 보안 목록에 80·443을 허용했고 OS 방화벽에도 같은 두 포트를 허용·영구 저장했다. 8787은 외부에 공개하지 않는다.
+
+공식 ARM Node.js 24.22.3(SHA-256 확인), Caddy 2.11.9와 프로젝트 `/opt/growgame`을 설치했다. 전용 사용자 `growgame`과 `growgame.service` 자동 시작을 설정했다. 새 DB `/var/lib/growgame/growgame.sqlite`는 SQLite v7·참여자 0명·명단 990명·integrity_check 정상이다. CSV·문제은행·관리자 해시 설정을 SCP로 이전했으며 학생·비밀 자료는 Git에 넣지 않았다. 관리자 페이지 HTTP 200, 비인증 학생/교사 관리 API 401, 프론트 Origin의 CORS preflight 204를 확인했다. Oracle ARM에서도 백엔드 테스트 16개가 모두 통과했다.
+
+API DNS 레코드 `053fba0a65660fed4b7142402de89cb8`을 기존 Tunnel CNAME에서 A `158.101.141.124`·DNS only·TTL 300으로 전환했다. Caddy의 자동 HTTPS를 활성화했으며 실제 API 도메인의 인증서 검증을 포함한 health 200·관리자 페이지 200·CORS preflight 204를 확인했다. Caddy는 `/etc/caddy/Caddyfile`에서 `127.0.0.1:8787`로 전달한다. 관리자 주소는 `https://cropgrow-api.sangsangbar.com/admin/`이다. 기존 노트북 API·Tunnel·DB는 변경하지 않았다.
+
+`growgame-backup.timer`는 매일 한국 시간 03:00에 `/var/backups/growgame`으로 SQLite 백업한다. 첫 백업 성공, 이 PC의 `%LOCALAPPDATA%/growgame-oracle-backups`로 SCP 복사와 양쪽 SHA-256 일치를 확인했다. 서버 밖 정기 백업은 아직 자동화하지 않았다.
+
+프론트와 두 빌드 경로의 기본 API 주소를 `https://cropgrow-api.sangsangbar.com`으로 변경하고 Pages Functions 중계·전용 테스트·CI 실행을 제거했다. 직접 요청의 CORS·인증·no-store·중복 보상 회귀 검사를 보강했다. 실제 Pages production/preview의 `API_BASE_URL` 변경도 완료했다. 로컬 Flutter analyze·Flutter test 31개(전용 로컬 1개 제외)·백엔드 16개·해시 1개 통과. 한글 경로의 기존 Dart 분석 오류는 비어 있던 R: 별칭에서 재실행해 해결했다. Wasm+JS 로컬 빌드와 임시 DB·별도 API 포트의 Chrome 직접 연결 검증도 통과했다. 명단·교사·퀴즈·성장·수확·랭킹·복구·학생/교사 메시지·읽음·기념일 미션 및 3가지 화면 크기를 확인했다. Git commit·push·새 Pages 배포 확인은 남아 있다.
+
+랭킹은 현재 약 60초 자동 갱신이며 요청마다 집계한다. 더 짧은 갱신이나 즉시 알림은 아직 구현하지 않았다. 200명이 5초마다 조회하면 랭킹만 시간당 144,000건이므로 직접 API로 전환하여 Pages Functions 무료 일일 한도를 사용하지 않게 한다. 진단 스크립트의 상한을 100→200으로 늘리고 Oracle 내부의 격리된 임시 DB에서 200명 동시 신규 등록 3회를 측정했다. 실패 0/600·각 해시 200회·최종 각 200명으로 통과했다. 회차별 최장 3.962/3.897/3.909초, p95 3.793/3.738/3.731초, RSS 최고 약 155MiB였다. 인터넷·학생 Wi-Fi를 포함한 성능 보장은 아니며 실제 플레이·잦은 랭킹 부하와 학교 Wi-Fi 실측은 남아 있다. 하루 한 번 접속만으로 유휴 회수 제외를 보장하지 않는다. Oracle 월 무료 outbound 한도는 공식 문서 기준 10TB이다.
+
 ## 2026-11-17 선생님 기록 삭제·비밀번호 변경
 
 사용자가 관리자 선생님 기록에 삭제와 비밀번호 변경을 추가 요청했다. 선생님 표에 PIN 설정 여부·변경·삭제 버튼을 추가하고 기존 학생 확인 창을 함께 사용한다. 새 PIN은 숫자 4자리이며 원문을 조회하거나 저장하지 않는다. 변경 시 해당 계정의 로그인만 해제하고 재배·수확·퀴즈·메시지 기록을 보존한다. `POST /api/admin/reset-pin`은 `{profile:{role:'teacher',name},pin}`을 지원한다.

@@ -5,7 +5,7 @@ import 'transport_stub.dart'
 
 const apiBaseUrl = String.fromEnvironment(
   'API_BASE_URL',
-  defaultValue: 'https://cropgrow.sangsangbar.com',
+  defaultValue: 'https://cropgrow-api.sangsangbar.com',
 );
 
 class ApiException implements Exception {

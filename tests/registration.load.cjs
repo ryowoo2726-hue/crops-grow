@@ -67,7 +67,7 @@ async function sample({count,round=1,delayMs=0,threads,idleMs=0,preflight=false}
   const option=name=>process.argv.find(arg=>arg.startsWith(`--${name}=`))?.split('=')[1];
   if(registrationOnly){
     const count=Number(option('count')||100),rounds=Number(option('rounds')||3),threads=Number(option('threads')||4);
-    if(!Number.isInteger(count)||count<1||count>100||!Number.isInteger(rounds)||rounds<1||rounds>10||![4,8].includes(threads))throw Error('Use count 1..100, rounds 1..10, threads 4 or 8');
+    if(!Number.isInteger(count)||count<1||count>200||!Number.isInteger(rounds)||rounds<1||rounds>10||![4,8].includes(threads))throw Error('Use count 1..200, rounds 1..10, threads 4 or 8');
     for(let round=1;round<=rounds;round++)report.samples.push(await sample({count,round,threads}));
   }else if(!process.argv.includes('--preflight-only')){
     for(const count of [10,30,50,100])for(let round=1;round<=3;round++)report.samples.push(await sample({count,round}));
@@ -78,7 +78,7 @@ async function sample({count,round=1,delayMs=0,threads,idleMs=0,preflight=false}
   const onlyDelay=process.argv.find(arg=>arg.startsWith('--delay-ms='));
   const onlyCount=process.argv.find(arg=>arg.startsWith('--count='));
   const count=onlyCount?Number(onlyCount.split('=')[1]):100;
-  if(!Number.isInteger(count)||count<1||count>100)throw Error('Count must be 1..100');
+  if(!Number.isInteger(count)||count<1||count>200)throw Error('Count must be 1..200');
   const delays=onlyDelay?[Number(onlyDelay.split('=')[1])]:[300,1000,2000,5000,10000];
   if(!delays.every(delay=>Number.isInteger(delay)&&delay>=0&&delay<=10000))throw Error('Delay must be 0..10000ms');
   if(!registrationOnly)for(const delayMs of delays)report.samples.push(await sample({count,delayMs,preflight:true}));

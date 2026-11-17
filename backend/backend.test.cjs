@@ -808,7 +808,9 @@ test('관리자 비밀번호 미설정 시 로그인 차단',async t=>{
 test('DB 복원, PIN, 서버 판정, 중복 보상 방지, CORS와 클래스 분리',async t=>{
   const directory=fs.mkdtempSync(path.join(os.tmpdir(),'growgame-backend-'));
   let clock=Date.parse('2026-11-10T00:00:00Z');
-  let app=createBackend({directory,now:()=>clock});
+  const frontendOrigin='https://cropgrow.sangsangbar.com';
+  const origins=[frontendOrigin,'http://localhost:4174'];
+  let app=createBackend({directory,now:()=>clock,origins});
   const start=async()=>{await new Promise(resolve=>app.server.listen(0,'127.0.0.1',resolve));return `http://127.0.0.1:${app.server.address().port}`;};
   const stop=async()=>{await new Promise(resolve=>app.server.close(resolve));app.store.db.close();};
   let base=await start();
@@ -817,9 +819,16 @@ test('DB 복원, PIN, 서버 판정, 중복 보상 방지, CORS와 클래스 분
     const response=await fetch(base+route,{method:body?'POST':'GET',headers:{'Content-Type':'application/json',...(token?{Authorization:'Bearer '+token}:{}),...(origin?{Origin:origin}:{})},...(body?{body:JSON.stringify(body)}:{})});
     return {status:response.status,data:await response.json()};
   };
+  const preflight=await fetch(base+'/api/actions',{method:'OPTIONS',headers:{Origin:frontendOrigin,
+    'Access-Control-Request-Method':'POST','Access-Control-Request-Headers':'authorization,content-type'}});
+  assert.equal(preflight.status,204);
+  assert.equal(preflight.headers.get('access-control-allow-origin'),frontendOrigin);
+  assert.match(preflight.headers.get('access-control-allow-headers'),/Authorization/);
+  assert.match(preflight.headers.get('access-control-allow-headers'),/Content-Type/);
+  assert.equal((await fetch(base+'/api/actions',{method:'OPTIONS',headers:{Origin:'https://untrusted.example'}})).status,403);
   const profile={grade:1,classNo:1,number:1};
   assert.equal((await api('/api/session',{body:{profile,pin:'12'}})).status,400);
-  const login=await api('/api/session',{body:{profile,pin:'1234'}});
+  const login=await api('/api/session',{body:{profile,pin:'1234'},origin:frontendOrigin});
   assert.equal(login.status,200); const token=login.data.token;
   assert.equal(login.data.state.progress,0);
   assert.deepEqual(login.data.quiz,(await api('/api/quizzes/current',{token})).data);
@@ -829,12 +838,16 @@ test('DB 복원, PIN, 서버 판정, 중복 보상 방지, CORS와 클래스 분
   assert.equal((await api('/api/me')).status,401);
   assert.equal((await api('/api/me',{token,origin:'https://untrusted.example'})).status,403);
   assert.equal((await api('/api/me',{token,origin:'http://localhost:4174'})).status,200);
+  const directState=await fetch(base+'/api/me',{headers:{Origin:frontendOrigin,Authorization:'Bearer '+token}});
+  assert.equal(directState.status,200);
+  assert.equal(directState.headers.get('access-control-allow-origin'),frontendOrigin);
+  assert.equal(directState.headers.get('cache-control'),'no-store');
   for(let i=0;i<5;i++) assert.equal((await api('/api/session',{body:{profile,pin:'9999'}})).status,401);
   assert.equal((await api('/api/session',{body:{profile,pin:'1234'}})).status,429);
   clock+=16*60000;
   assert.equal((await api('/api/session',{body:{profile,pin:'1234'}})).status,200);
   const water={kind:'water',requestId:'water-request-0001'};
-  const duplicate=await Promise.all([api('/api/actions',{token,body:water}),api('/api/actions',{token,body:water})]);
+  const duplicate=await Promise.all([api('/api/actions',{token,body:water,origin:frontendOrigin}),api('/api/actions',{token,body:water,origin:frontendOrigin})]);
   duplicate.forEach(x=>assert.equal(x.data.state.progress,50));
   assert.equal((await api('/api/actions',{token,body:{kind:'water',requestId:'water-request-0002'}})).data.state.progress,100);
   const harvest={kind:'harvest',requestId:'harvest-request-01'};
@@ -864,7 +877,7 @@ test('DB 복원, PIN, 서버 판정, 중복 보상 방지, CORS와 클래스 분
   app.store.importQuiz(quiz);
   assert.equal((await api('/api/quizzes/check',{token,body:answer})).status,409);
   await backup(app.store.db,path.join(directory,'backup.sqlite'));
-  await stop(); app=createBackend({directory,now:()=>clock}); base=await start();
+  await stop(); app=createBackend({directory,now:()=>clock,origins}); base=await start();
   const restored=(await api('/api/me',{token})).data.state;
   assert.equal(restored.harvestCount,1); assert.equal(restored.collectionCounts.rice,1); assert.equal(restored.progress,30);
   assert.ok(fs.statSync(path.join(directory,'backup.sqlite')).size>0);

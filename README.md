@@ -1,13 +1,13 @@
 ﻿# 마석중학교 농작물 키우기
 
-Flutter Web 프론트와 현재 서버 노트북에서 실행하는 Node.js + SQLite 백엔드입니다.
+Flutter Web 프론트와 Node.js + SQLite 백엔드입니다. 백엔드를 Oracle 무료 VM으로 이전하고 있습니다.
 
 **다른 AI 또는 다음 작업은 [프로젝트 인수인계 문서](docs/PROJECT_HANDOFF.md)를 먼저 읽어주세요.** 현재 상태·규칙·API·DB·검증·주의할 오류와 남은 작업을 기록합니다.
 
 - 프론트 주소: `https://cropgrow.sangsangbar.com`
-- 게임 API: `https://cropgrow.sangsangbar.com/api/*` (Pages에서 PC의 Tunnel로 전달)
+- 게임 API: `https://cropgrow-api.sangsangbar.com/api/*` (브라우저에서 백엔드에 직접 요청)
 - 관리자/직접 API: `https://cropgrow-api.sangsangbar.com`
-- GitHub `main`과 Cloudflare Pages `cropgrow`를 연결했습니다. push하면 자동 배포됩니다. 2026-11-12 동일 도메인 API 전달과 로딩 최적화를 배포했습니다. 현재 PC의 별도 테스트 DB로 외부 플레이·저장과 health 300건 성공을 확인했습니다. 측정 조건과 결과는 [인터넷 성능 보고서](docs/INTERNET_PERFORMANCE_REPORT.md)를 확인하세요.
+- GitHub `main`과 Cloudflare Pages `cropgrow`를 연결했습니다. push하면 자동 배포됩니다. 2026-11-18 Pages Functions API 중계를 제거하고 직접 API 주소를 기본값으로 변경했습니다. Oracle의 새 DB·명단·관리자·HTTPS·API DNS 전환과 자동 시작·일일 백업 설정은 완료했으며 프론트 배포를 준비 중입니다. 최신 완료/미완료 상태는 인수인계 최상단을 확인하세요. 이전 노트북 연결의 측정 결과는 [인터넷 성능 보고서](docs/INTERNET_PERFORMANCE_REPORT.md)에 있습니다.
 
 ## 웹 로딩 최적화 (2026-11-11)
 
@@ -20,6 +20,10 @@ Flutter Web 프론트와 현재 서버 노트북에서 실행하는 Node.js + SQ
 사진·화면 전환 최적화: 화면용 이미지 합계 약 60% 감소, 현재 작물의 수확 이미지 선준비, 작물 선택 이미지 백그라운드 준비, 성장 대기 0.7초를 적용했습니다. 앱 코드·엔진·폰트·이미지는 내용별 주소와 장기 브라우저 캐시를 사용합니다. GitHub/Cloudflare 빌드는 마무리 스크립트를 자동 실행합니다.
 
 ## 실행과 배포
+
+Oracle 운영은 백엔드를 `127.0.0.1:8787`에서 실행하고 Caddy가 HTTPS API를 제공합니다. Cloudflare Pages는 화면·이미지·폰트를 제공하며 데이터 요청을 중계하지 않습니다. Pages의 production/preview `API_BASE_URL`도 `https://cropgrow-api.sangsangbar.com`으로 맞춰야 합니다. 직접 연결은 기존 서버 인증·SQLite 저장 정책을 유지합니다. [Oracle 실행 준비](backend/README.md)를 확인하세요.
+
+아래 Windows 실행 방법은 기존 노트북 운영·로컬 검증용입니다.
 
 `GrowGame 시작.cmd` 하나로 백엔드와 도메인 연결을 함께 시작합니다. IP를 수동 등록할 필요가 없습니다. 새 컴퓨터의 최초 실행에는 Node/cloudflared 설치, 저장 폴더 선택과 Tunnel 인증이 필요합니다. 현재 컴퓨터는 사용자 요청에 따라 별도 로컬 테스트 DB를 사용합니다. 최신 실행·배포 상태는 인수인계 문서 맨 위를 확인하세요.
 
