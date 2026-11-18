@@ -39,12 +39,13 @@ const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
     const pages=await(await fetch(`http://127.0.0.1:${port}/json/list`)).json();
     socket=new WebSocket(pages.find(p=>p.type==='page').webSocketDebuggerUrl);
     await new Promise(resolve=>socket.addEventListener('open',resolve,{once:true}));
-    let sequence=0;const pending=new Map(),errors=[];
+    let sequence=0,confirmation;const pending=new Map(),errors=[];
     socket.addEventListener('message',event=>{
       const message=JSON.parse(event.data);
       if(message.id){const p=pending.get(message.id);pending.delete(message.id);message.error?p.reject(message.error):p.resolve(message.result);}
       if(message.method==='Runtime.exceptionThrown')errors.push(message.params.exceptionDetails);
       if(message.method==='Log.entryAdded'&&message.params.entry.source==='security')errors.push(message.params.entry);
+      if(message.method==='Page.javascriptDialogOpening')confirmation=message.params;
     });
     const send=(method,params={})=>new Promise((resolve,reject)=>{const id=++sequence;pending.set(id,{resolve,reject});socket.send(JSON.stringify({id,method,params}));});
     const run=async expression=>{const result=await send('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true});assert.ok(!result.exceptionDetails,JSON.stringify(result.exceptionDetails));return result.result.value;};
@@ -69,6 +70,25 @@ const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
       assert.equal(await run("document.querySelectorAll('#students tr').length"),1);
       assert.equal(await run("document.querySelector('#students tr').textContent.includes('사과')"),true);
       assert.equal(await run("document.querySelector('#students tr').textContent.includes('50%')"),true);
+      if(width===390){
+        const first=app.store.db.prepare('SELECT id FROM players WHERE grade=1 AND class_no=1').get().id;
+        const other=app.store.db.prepare('SELECT id FROM players WHERE grade=1 AND class_no=2').get().id;
+        app.store.db.prepare('UPDATE players SET water_day=? WHERE id IN (?,?)').run(new Date().toISOString(),first,other);
+        const clickReset=()=>run("document.querySelector('#students .water-reset-button').click()");
+        for(const accept of [false,true]){
+          confirmation=null;
+          const click=clickReset();
+          for(let n=0;!confirmation&&n<100;n++)await sleep(50);
+          assert.equal(confirmation?.type,'confirm');
+          assert.match(confirmation.message,/1학년 1반 1번/);
+          await send('Page.handleJavaScriptDialog',{accept});
+          await click;
+          if(accept)await wait("document.getElementById('message').textContent.includes('물주기 제한을 초기화했습니다')");
+          assert.equal(app.store.snapshot(first).waterCooldownMs===0,accept);
+          assert.ok(app.store.snapshot(other).waterCooldownMs>0);
+          assert.equal(app.store.snapshot(first).progress,50);
+        }
+      }
       await run("document.querySelector('[data-panel=\"teachers-panel\"]').click()");
       await wait("document.getElementById('teachers-updated').textContent.includes('갱신')");
       if(width===390){

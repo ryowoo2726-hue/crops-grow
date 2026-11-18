@@ -161,6 +161,13 @@ class _FarmGameState extends State<FarmGame>
   Map<String, Map<String, String>> missions = {};
   bool missionStorageBroken = false;
   Timer? missionTimer;
+  Timer? waterTimer;
+  final waterClock = Stopwatch();
+  int get waterRemainingMs => math.max(
+    0,
+    ((record?['waterCooldownMs'] as int?) ?? 0) -
+        waterClock.elapsedMilliseconds,
+  );
   final backend = BackendClient();
   final pin = TextEditingController();
   final teacherName = TextEditingController();
@@ -265,6 +272,7 @@ class _FarmGameState extends State<FarmGame>
   void dispose() {
     rewardController.dispose();
     missionTimer?.cancel();
+    waterTimer?.cancel();
     pin.dispose();
     teacherName.dispose();
     WidgetsBinding.instance.removeObserver(this);
@@ -337,8 +345,24 @@ class _FarmGameState extends State<FarmGame>
       record = state;
       disconnected = false;
       loginError = null;
+      waterClock
+        ..reset()
+        ..start();
     });
+    scheduleWaterLabel();
     if (state['cropId'] == null) unawaited(warmGallery());
+  }
+
+  void scheduleWaterLabel() {
+    waterTimer?.cancel();
+    final remaining = waterRemainingMs;
+    if (remaining == 0) return;
+    final nextMinute = (remaining - 1) % 60000 + 1;
+    waterTimer = Timer(Duration(milliseconds: nextMinute), () {
+      if (!mounted || record == null) return;
+      setState(() {});
+      scheduleWaterLabel();
+    });
   }
 
   Future<void> refreshRemote() async {
@@ -832,7 +856,12 @@ class _FarmGameState extends State<FarmGame>
     int? missionId,
     int? quizRunId,
   }) async {
-    if (busy || !cropReady || (quizRunId == null && !canGrow(r, kind))) return;
+    if (busy ||
+        !cropReady ||
+        (quizRunId == null &&
+            !canGrow(r, kind, waterRemainingMs: waterRemainingMs))) {
+      return;
+    }
     final before = (r['progress'] as num).toDouble();
     final animate = !MediaQuery.disableAnimationsOf(context);
     setState(() {
@@ -1870,6 +1899,11 @@ class _FarmGameState extends State<FarmGame>
     final crop = r['cropId'] as String?;
     final progress = displayedProgress;
     final effect = rewardGeometry;
+    final waterMinutes = (waterRemainingMs + 59999) ~/ 60000;
+    final waterHours = waterMinutes ~/ 60;
+    final waterLabel = waterHours > 0
+        ? '$waterHours시간 ${waterMinutes % 60}분 뒤 물 주기'
+        : '$waterMinutes분 뒤 물 주기';
     return Stack(
       key: farmKey,
       clipBehavior: Clip.none,
@@ -2047,6 +2081,8 @@ class _FarmGameState extends State<FarmGame>
                   ? '다음 작물 심기'
                   : progress >= 100
                   ? '수확하기'
+                  : waterMinutes > 0
+                  ? waterLabel
                   : '물 주기 +50%',
               busy
                   ? null
@@ -2054,7 +2090,8 @@ class _FarmGameState extends State<FarmGame>
                   ? chooseCrop
                   : r['progress'] >= 100
                   ? harvest
-                  : cropReady && canGrow(r, 'water')
+                  : cropReady &&
+                        canGrow(r, 'water', waterRemainingMs: waterRemainingMs)
                   ? () => grow('water')
                   : null,
               icon: crop == null
@@ -2063,17 +2100,6 @@ class _FarmGameState extends State<FarmGame>
                   ? Icons.emoji_events
                   : Icons.water_drop,
             ),
-            if (r['dailyMode'] &&
-                crop != null &&
-                r['progress'] < 100 &&
-                !canGrow(r, 'water'))
-              const Padding(
-                padding: EdgeInsets.only(top: 6),
-                child: Text(
-                  '오늘 물 주기를 마쳤어요. 내일 다시 만나요!',
-                  style: TextStyle(fontSize: 12),
-                ),
-              ),
           ],
         ),
         if (rewardKind != null && effect != null)

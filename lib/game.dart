@@ -102,11 +102,17 @@ List<Map<String, dynamic>> decodeRecords(String? raw) {
   return result;
 }
 
-bool canGrow(Map<String, dynamic> record, String kind) =>
+bool canGrow(
+  Map<String, dynamic> record,
+  String kind, {
+  int? waterRemainingMs,
+}) =>
     ['water', 'mission'].contains(kind) &&
     record['cropId'] != null &&
     record['progress'] < 100 &&
-    (!record['dailyMode'] || record['${kind}Day'] != seoulDay());
+    (kind == 'water' && record.containsKey('waterCooldownMs')
+        ? (waterRemainingMs ?? record['waterCooldownMs']) == 0
+        : !record['dailyMode'] || record['${kind}Day'] != seoulDay());
 
 bool growRecord(Map<String, dynamic> record, String kind) {
   if (!canGrow(record, kind)) return false;

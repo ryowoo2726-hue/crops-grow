@@ -66,9 +66,25 @@ function pinCell(row,person){
   const button=document.createElement('button');button.className='pin-button';button.textContent='변경';button.setAttribute('aria-label',participantLabel(person)+' 비밀번호 변경');
   button.onclick=()=>{selected=person;$('pin-title').textContent=(person.role==='teacher'?'선생님':'학생')+' 비밀번호 변경';$('pin-student').textContent=participantLabel(person);$('new-pin').value='';$('pin-error').textContent='';$('pin-dialog').showModal();$('new-pin').focus();};pin.append(button);
 }
-function deleteCell(row,person){
+function managementCell(row,person){
+  const label=participantLabel(person);
+  const reset=document.createElement('button');
+  reset.className='secondary water-reset-button';
+  reset.textContent='물주기 초기화';
+  reset.setAttribute('aria-label',label+' 물주기 초기화');
+  reset.onclick=async()=>{
+    if(!window.confirm(label+'의 물주기 제한을 초기화할까요?'))return;
+    const session=token;
+    reset.disabled=true;
+    try{
+      await api('reset-water',{profile:profileOf(person)});
+      if(token===session&&token)$('message').textContent=label+'의 물주기 제한을 초기화했습니다.';
+    }catch(error){showError(error);}
+    finally{reset.disabled=false;}
+  };
   const remove=document.createElement('button');remove.className='delete-button';remove.textContent='삭제';remove.setAttribute('aria-label',participantLabel(person)+(person.role==='teacher'?'':' 학생')+' 삭제');
-  remove.onclick=()=>{deleting=person;$('delete-title').textContent=(person.role==='teacher'?'선생님':'학생')+' 정보를 삭제할까요?';$('delete-student').textContent=participantLabel(person);$('delete-error').textContent='';$('delete-dialog').showModal();$('cancel-delete').focus();};cell(row,'').append(remove);
+  remove.onclick=()=>{deleting=person;$('delete-title').textContent=(person.role==='teacher'?'선생님':'학생')+' 정보를 삭제할까요?';$('delete-student').textContent=label;$('delete-error').textContent='';$('delete-dialog').showModal();$('cancel-delete').focus();};
+  cell(row,'','management-actions').append(reset,remove);
 }
 function render(){
   const list=students.filter(s=>(!$('grade').value||s.grade===Number($('grade').value))&&(!$('class-no').value||s.classNo===Number($('class-no').value)));
@@ -81,7 +97,7 @@ function render(){
     cell(row,student.cropId?(crops[student.cropId]||'알 수 없는 작물'):'심기 대기','crop');
     growthCell(row,student.progress);
     cell(row,`${student.harvestCount}개`,'harvest');
-    deleteCell(row,student);
+    managementCell(row,student);
     $('students').append(row);
   }
 }
@@ -93,7 +109,7 @@ async function loadTeachers(){
     if(!token||token!==session)return;
     count('teacher-count',teachers.length,'명');count('teacher-growing-count',teachers.filter(t=>t.cropId).length,'개');count('teacher-harvest-count',teachers.reduce((n,t)=>n+t.harvestCount,0),'개');
     $('teachers').replaceChildren();$('teachers-empty').hidden=teachers.length>0;
-    for(const teacher of teachers){const person={...teacher,role:'teacher'};const row=document.createElement('tr');cell(row,teacher.name);pinCell(row,person);cell(row,teacher.cropId?(crops[teacher.cropId]||'알 수 없는 작물'):'심기 대기','crop');growthCell(row,teacher.progress);cell(row,`${teacher.harvestCount}개`,'harvest');deleteCell(row,person);$('teachers').append(row);}
+    for(const teacher of teachers){const person={...teacher,role:'teacher'};const row=document.createElement('tr');cell(row,teacher.name);pinCell(row,person);cell(row,teacher.cropId?(crops[teacher.cropId]||'알 수 없는 작물'):'심기 대기','crop');growthCell(row,teacher.progress);cell(row,`${teacher.harvestCount}개`,'harvest');managementCell(row,person);$('teachers').append(row);}
     $('teachers-updated').textContent=new Date().toLocaleTimeString('ko-KR',{timeZone:'Asia/Seoul'})+' 갱신';
   }finally{$('refresh-teachers').disabled=false;}
 }

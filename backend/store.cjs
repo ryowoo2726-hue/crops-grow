@@ -8,6 +8,9 @@ const crops = new Set(['rice','sweet-potato','soybean','radish','napa-cabbage','
 class ApiError extends Error { constructor(status, message) { super(message); this.status = status; } }
 const fail = (status, message) => { throw new ApiError(status, message); };
 const dayAt = time => new Date(time + 9 * 3600000).toISOString().slice(0, 10);
+const hourMs = 3600000, dayMs = 24 * hourMs;
+// 오전 8시(한국 시간)는 전날 UTC 23시입니다.
+const nextWaterReset = time => (Math.floor((time + hourMs) / dayMs) + 1) * dayMs - hourMs;
 function weekAt(time) {
   const date = new Date(dayAt(time) + 'T00:00:00Z');
   date.setUTCDate(date.getUTCDate() - (date.getUTCDay() + 6) % 7);
@@ -110,12 +113,27 @@ function openStore(directory, {now = Date.now, dailyLimit = false} = {}) {
     }
     return {classes};
   }
+  function waterCooldown(player, time) {
+    const value = player.water_day;
+    if (!value) return 0;
+    let wateredAt = Date.parse(value);
+    if (value.length === 10) {
+      // 기존 날짜 기록은 해당 서울 날짜의 마지막 물주기 시각으로 해석합니다.
+      const midnight = wateredAt - 9 * hourMs;
+      if (midnight + dayMs <= nextWaterReset(time) - dayMs) return 0;
+      const {at} = db.prepare(`SELECT MAX(created_at) at FROM action_receipts
+        WHERE player_id=? AND fingerprint LIKE '["water",%' AND created_at>=? AND created_at<?`)
+        .get(player.id,midnight,midnight+dayMs);
+      wateredAt = at ?? (midnight + 8 * hourMs);
+    }
+    return Math.max(0,nextWaterReset(wateredAt)-time);
+  }
   function snapshot(id) {
     const p = getPlayer(id);
     const counts = db.prepare('SELECT crop_id, COUNT(*) count FROM harvests WHERE player_id=? GROUP BY crop_id').all(id);
     return {profile:participantProfile(p), cropId:p.crop_id, progress:p.progress,pendingGratitudeGrowth:specialMissions.pendingGrowth(id),
       unreadMessageCount:specialMissions.unreadCount(id),
-      dailyMode:dailyLimit, waterDay:p.water_day, missionDay:p.mission_day, revision:p.revision,
+      dailyMode:dailyLimit, waterDay:p.water_day, waterCooldownMs:waterCooldown(p,now()), missionDay:p.mission_day, revision:p.revision,
       harvests:[], harvestCount:counts.reduce((n,c)=>n+c.count,0), collectionCounts:Object.fromEntries(counts.map(c=>[c.crop_id,c.count]))};
   }
   async function login(profile, pin) {
@@ -203,6 +221,14 @@ function openStore(directory, {now = Date.now, dailyLimit = false} = {}) {
       db.exec('COMMIT');
     } catch(error) { db.exec('ROLLBACK'); throw error; }
   }
+  function resetWater(profile) {
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      const player=managedPlayer(profile);
+      db.prepare("UPDATE players SET water_day='',revision=revision+1 WHERE id=? AND water_day<>''").run(player.id);
+      db.exec('COMMIT');
+    } catch(error) { db.exec('ROLLBACK'); throw error; }
+  }
   function deleteStudent(profile) {
     if (profile?.role && profile.role!=='student') fail(400,'삭제할 학생 정보를 확인하세요.');
     return deletePlayer(profile);
@@ -248,7 +274,7 @@ function openStore(directory, {now = Date.now, dailyLimit = false} = {}) {
         if (previous.fingerprint!==fingerprint) fail(409,'같은 요청 번호를 다른 행동에 사용할 수 없어요.');
         db.exec('COMMIT'); return {state:snapshot(playerId),...JSON.parse(previous.outcome)};
       }
-      const p = getPlayer(playerId), day = dayAt(now());
+      const p = getPlayer(playerId), time = now(), day = dayAt(time);
       let outcome = {};
       if (input.kind==='quiz-set') {
         const growth=quizBank.claim(playerId,input.runId);
@@ -267,8 +293,10 @@ function openStore(directory, {now = Date.now, dailyLimit = false} = {}) {
       } else {
         if (!['water','quiz','special'].includes(input.kind)) fail(400,'올바른 행동을 선택해 주세요.');
         if (!p.crop_id || p.progress>=100) fail(409,'현재는 성장시킬 수 없어요.');
-        const field = input.kind==='water'?'water_day':'mission_day';
-        if (dailyLimit && p[field]===day) fail(409,'오늘 보상은 이미 받았어요.');
+        const water = input.kind==='water';
+        const field = water?'water_day':'mission_day';
+        if (water && waterCooldown(p,time)>0) fail(409,'이미 물을 줬어요. 오전 8시에 다시 줄 수 있어요.');
+        if (!water && dailyLimit && p.mission_day===day) fail(409,'오늘 보상은 이미 받았어요.');
         if (input.kind==='quiz') {
           if (db.prepare('SELECT 1 FROM quiz_sets LIMIT 1').get()) fail(409,'과목별 퀴즈를 다시 열어 주세요.');
           const q = quiz();
@@ -282,9 +310,10 @@ function openStore(directory, {now = Date.now, dailyLimit = false} = {}) {
           if (mission.kind==='gratitude') fail(409,'감사의 말을 작성해 미션에 참여해 주세요.');
           if (mission.poster) fail(409,'포스터를 읽고 특별 퀴즈에 참여해 주세요.');
         }
-        db.prepare(`UPDATE players SET progress=MIN(100,progress+?),${field}=?,revision=revision+1 WHERE id=?`).run(input.kind==='water'?50:30,day,playerId);
+        db.prepare(`UPDATE players SET progress=MIN(100,progress+?),${field}=?,revision=revision+1 WHERE id=?`)
+          .run(water?50:30,water?new Date(time).toISOString():day,playerId);
       }
-      db.prepare('INSERT INTO action_receipts VALUES(?,?,?,?,?)').run(playerId,input.requestId,fingerprint,JSON.stringify(outcome),now());
+      db.prepare('INSERT INTO action_receipts VALUES(?,?,?,?,?)').run(playerId,input.requestId,fingerprint,JSON.stringify(outcome),time);
       db.exec('COMMIT'); return {state:snapshot(playerId),...outcome};
     } catch(error) { db.exec('ROLLBACK'); throw error; }
   }
@@ -350,6 +379,6 @@ function openStore(directory, {now = Date.now, dailyLimit = false} = {}) {
     if (!input || !validWeek(input.week) || typeof input.title!=='string' || !input.title.trim() || input.title.length>60 || typeof input.description!=='string' || !input.description.trim() || input.description.length>600) fail(400,'특별 미션의 월요일 날짜, 제목과 내용을 확인하세요.');
     db.prepare('INSERT INTO special_missions(week,title,description) VALUES(?,?,?) ON CONFLICT(week) DO UPDATE SET title=excluded.title,description=excluded.description,revision=revision+1').run(input.week,input.title.trim(),input.description.trim());
   }
-  return {db,login,resetPin,deleteStudent,deleteTeacher,authenticate,snapshot,quiz,checkAnswer,special,action,garden,rankings,importQuiz,importSpecial,quizBank,importRoster,loginOptions,specialMissions};
+  return {db,login,resetPin,resetWater,deleteStudent,deleteTeacher,authenticate,snapshot,quiz,checkAnswer,special,action,garden,rankings,importQuiz,importSpecial,quizBank,importRoster,loginOptions,specialMissions};
 }
 module.exports = {openStore,ApiError,dayAt,weekAt};

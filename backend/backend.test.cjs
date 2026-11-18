@@ -364,6 +364,7 @@ test('명단 CSV·12반·학생 이름 및 교사 참여, 재로그인과 기록
     await assert.rejects(app.store.login(invalid,'1234'),e=>e.status===400);
   await app.store.login({role:'teacher',name:'다른교사'},'5678');
   app.store.action(id,{kind:'water',requestId:'teacher-water-0001'});
+  app.store.resetWater(teacherProfile);
   app.store.action(id,{kind:'water',requestId:'teacher-water-0002'});
   app.store.action(id,{kind:'harvest',requestId:'teacher-harvest-0001'});
   app.store.action(id,{kind:'harvest',requestId:'teacher-harvest-0001'});
@@ -615,9 +616,11 @@ test('관리자 인증, 학생 목록, PIN 변경, 권한 분리와 만료',asyn
   const student=await app.store.login(profile,'1234');
   const id=app.store.authenticate(student.token);
   app.store.action(id,{kind:'water',requestId:'admin-water-0000001'});
+  app.store.resetWater(profile);
   app.store.action(id,{kind:'water',requestId:'admin-water-0000002'});
   app.store.action(id,{kind:'harvest',requestId:'admin-harvest-00001'});
   app.store.action(id,{kind:'plant',cropId:'apple',requestId:'admin-plant-0000001'});
+  app.store.resetWater(profile);
   app.store.action(id,{kind:'water',requestId:'admin-water-0000003'});
   await app.store.login({grade:2,classNo:1,number:1},'4321');
   assert.equal((await request('/api/admin/students')).status,401);
@@ -636,9 +639,12 @@ test('관리자 인증, 학생 목록, PIN 변경, 권한 분리와 만료',asyn
   assert.deepEqual((await request('/api/admin/teachers',{token})).data,{teachers:[]});
   const teacher=await app.store.login({role:'teacher',name:' 가상교사 '},'4321');
   const teacherId=app.store.authenticate(teacher.token);
-  for(let i=0;i<2;i++)app.store.action(teacherId,{kind:'water',requestId:'admin-teacher-water-'+i});
+  app.store.action(teacherId,{kind:'water',requestId:'admin-teacher-water-0'});
+  app.store.resetWater(teacher.state.profile);
+  app.store.action(teacherId,{kind:'water',requestId:'admin-teacher-water-1'});
   app.store.action(teacherId,{kind:'harvest',requestId:'admin-teacher-harvest'});
   app.store.action(teacherId,{kind:'plant',cropId:'apple',requestId:'admin-teacher-plant'});
+  app.store.resetWater(teacher.state.profile);
   app.store.action(teacherId,{kind:'water',requestId:'admin-teacher-water-2'});
   const teachers=await request('/api/admin/teachers',{token});
   assert.equal(teachers.headers.get('cache-control'),'no-store');
@@ -651,6 +657,24 @@ test('관리자 인증, 학생 목록, PIN 변경, 권한 분리와 만료',asyn
   assert.ok(!JSON.stringify(list.data).includes('pin_hash'));
   assert.ok(!JSON.stringify(list.data).includes('pin_salt'));
   assert.ok(!JSON.stringify(list.data).includes('1234'));
+  const resetWater='/api/admin/reset-water';
+  assert.equal((await request(resetWater,{body:{profile}})).status,401);
+  assert.equal((await request(resetWater,{token:student.token,body:{profile}})).status,401);
+  assert.equal((await request(resetWater,{token,body:{profile},origin:'https://untrusted.example'})).status,403);
+  assert.equal((await request(resetWater,{token,body:{profile:{...profile,number:30}}})).status,404);
+  const beforeReset=app.store.snapshot(id);
+  assert.ok(beforeReset.waterCooldownMs>0);
+  assert.equal((await request(resetWater,{token,body:{profile},origin:'http://localhost:4174'})).status,200);
+  const afterReset=(await request('/api/me',{token:student.token})).data.state;
+  assert.equal(afterReset.waterCooldownMs,0);
+  assert.equal(afterReset.progress,beforeReset.progress);
+  assert.equal(afterReset.harvestCount,beforeReset.harvestCount);
+  assert.equal(afterReset.revision,beforeReset.revision+1);
+  assert.equal((await request(resetWater,{token,body:{profile}})).status,200);
+  assert.equal(app.store.snapshot(id).revision,afterReset.revision);
+  assert.ok(app.store.snapshot(teacherId).waterCooldownMs>0,'선택하지 않은 참가자의 제한 유지');
+  assert.equal((await request(resetWater,{token,body:{profile:teacher.state.profile}})).status,200);
+  assert.equal(app.store.snapshot(teacherId).waterCooldownMs,0);
   assert.equal((await request('/api/admin/reset-pin',{token,body:{profile,pin:'12'}})).status,400);
   assert.equal((await request('/api/admin/reset-pin',{token,body:{profile:{...profile,number:30},pin:'0246'}})).status,404);
   assert.equal((await request('/api/admin/reset-pin',{token,origin:base,body:{profile,pin:'0246'}})).status,200);
@@ -683,7 +707,9 @@ test('관리자 학생 삭제: 권한, 전체 기록 정리, 롤백, 재등록�
   const profile={grade:1,classNo:1,number:1};
   const other=await app.store.login({...profile,classNo:2},'4321');
   const student=await app.store.login(profile,'1234'),id=app.store.authenticate(student.token);
-  for(let i=0;i<2;i++)app.store.action(id,{kind:'water',requestId:'delete-water-0000'+i});
+  app.store.action(id,{kind:'water',requestId:'delete-water-00000'});
+  app.store.resetWater(profile);
+  app.store.action(id,{kind:'water',requestId:'delete-water-00001'});
   app.store.action(id,{kind:'harvest',requestId:'delete-harvest-00001'});
   app.store.importQuiz({week:'2026-11-09',questions:[{question:'삭제 검증',choices:['가','나','다','라'],correctIndex:0}]});
   const quiz=app.store.quiz();
@@ -737,7 +763,9 @@ test('선생님 관리: PIN 변경·권한·전체 기록 삭제·롤백·이름
   const student=await app.store.login({grade:1,classNo:1,number:1},'4321');
   const studentId=app.store.authenticate(student.token);
   const other=await app.store.login({role:'teacher',name:'다른교사'},'4321');
-  for(let i=0;i<2;i++)app.store.action(id,{kind:'water',requestId:'teacher-admin-water-'+i});
+  app.store.action(id,{kind:'water',requestId:'teacher-admin-water-0'});
+  app.store.resetWater(profile);
+  app.store.action(id,{kind:'water',requestId:'teacher-admin-water-1'});
   app.store.action(id,{kind:'harvest',requestId:'teacher-admin-harvest'});
   app.store.action(id,{kind:'plant',cropId:'apple',requestId:'teacher-admin-plant'});
   app.store.importQuiz({week:'2026-11-16',questions:[{question:'관리 검증',choices:['가','나','다','라'],correctIndex:0}]});
@@ -837,7 +865,7 @@ test('Cloudflare 관리자 직접 연결: 허용 Origin·preflight·관리자와
 
 test('DB 복원, PIN, 서버 판정, 중복 보상 방지, CORS와 클래스 분리',async t=>{
   const directory=fs.mkdtempSync(path.join(os.tmpdir(),'growgame-backend-'));
-  let clock=Date.parse('2026-11-10T00:00:00Z');
+  let clock=Date.parse('2026-11-10T22:40:00Z');
   const frontendOrigin='https://cropgrow.sangsangbar.com';
   const origins=[frontendOrigin,'http://localhost:4174'];
   let app=createBackend({directory,now:()=>clock,origins});
@@ -878,8 +906,20 @@ test('DB 복원, PIN, 서버 판정, 중복 보상 방지, CORS와 클래스 분
   assert.equal((await api('/api/session',{body:{profile,pin:'1234'}})).status,200);
   const water={kind:'water',requestId:'water-request-0001'};
   const duplicate=await Promise.all([api('/api/actions',{token,body:water,origin:frontendOrigin}),api('/api/actions',{token,body:water,origin:frontendOrigin})]);
-  duplicate.forEach(x=>assert.equal(x.data.state.progress,50));
-  assert.equal((await api('/api/actions',{token,body:{kind:'water',requestId:'water-request-0002'}})).data.state.progress,100);
+  duplicate.forEach(x=>{
+    assert.equal(x.data.state.progress,50);
+    assert.equal(x.data.state.waterCooldownMs,4*60000);
+  });
+  // 배포 전 날짜만 저장했던 기록도 요청 시각으로 오전 8시 경계를 복원합니다.
+  app.store.db.prepare('UPDATE players SET water_day=? WHERE id=?').run('2026-11-11',app.store.authenticate(token));
+  clock=Date.parse('2026-11-10T22:59:59.999Z');
+  assert.equal((await api('/api/me',{token})).data.state.waterCooldownMs,1);
+  assert.equal((await api('/api/actions',{token,body:{...water,requestId:'water-request-0002'}})).status,409);
+  clock=Date.parse('2026-11-10T23:00:00Z');
+  assert.equal((await api('/api/me',{token})).data.state.waterCooldownMs,0);
+  const nextWater=(await api('/api/actions',{token,body:{kind:'water',requestId:'water-request-0002'}})).data.state;
+  assert.equal(nextWater.progress,100);
+  assert.equal(nextWater.waterCooldownMs,24*3600000);
   const harvest={kind:'harvest',requestId:'harvest-request-01'};
   assert.equal((await api('/api/actions',{token,body:harvest})).data.state.harvestCount,1);
   assert.equal((await api('/api/actions',{token,body:harvest})).data.state.harvestCount,1);
@@ -887,6 +927,7 @@ test('DB 복원, PIN, 서버 판정, 중복 보상 방지, CORS와 클래스 분
   const other=await api('/api/session',{body:{profile:{...profile,classNo:2},pin:'4321'}});
   assert.equal((await api('/api/garden',{token:other.data.token})).data.total,0);
   await api('/api/actions',{token,body:{kind:'plant',cropId:'apple',requestId:'plant-request-0001'}});
+  assert.equal((await api('/api/actions',{token,body:{kind:'water',requestId:'water-request-0003'}})).status,409);
   const quiz={week:'2026-11-09',questions:[{question:'문제',choices:['보기 가','보기 나','보기 다','보기 라'],correctIndex:2,explanation:'정답 해설'}]};
   assert.throws(()=>app.store.importQuiz({...quiz,questions:[{...quiz.questions[0],choices:['가','나']}]}));
   app.store.importQuiz(quiz);

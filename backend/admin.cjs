@@ -75,6 +75,10 @@ function createAdmin(store,{credentials,now,traffic}) {
       await store.resetPin(input.profile,input.pin);
       reply(200,{ok:true}); return;
     }
+    if (route==='/api/admin/reset-water' && method==='POST') {
+      store.resetWater(input.profile);
+      reply(200,{ok:true}); return;
+    }
     if (route==='/api/admin/delete-student' && method==='POST') {
       store.deleteStudent(input.profile);
       reply(200,{ok:true}); return;
