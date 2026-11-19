@@ -1004,19 +1004,22 @@ class _FarmGameState extends State<FarmGame>
             Padding(
               padding: const EdgeInsets.only(bottom: 12),
               child: OutlinedButton(
-                onPressed: () =>
-                    Navigator.pop(context, item['subject'] as String),
+                onPressed: item['canOpen'] == false
+                    ? null
+                    : () => Navigator.pop(context, item['subject'] as String),
                 child: Padding(
                   padding: const EdgeInsets.symmetric(vertical: 12),
                   child: Row(
                     children: [
                       Expanded(
                         child: Text(
-                          '${item['subject']} · ${item['completed'] == true
+                          '${item['subject']} · ${item['previousUnclaimed'] == true
+                              ? '지난 퀴즈 보상 받기'
+                              : item['completed'] == true
                               ? item['claimed'] == true
                                     ? '오늘 완료 · 정답 보기'
                                     : '정답 보기 · 보상 받기'
-                              : item['remaining'] == 0
+                              : item['canOpen'] == false || (item['canOpen'] == null && item['remaining'] == 0)
                               ? '새 문제 준비 중'
                               : '오늘의 10문제'}',
                         ),
@@ -1050,24 +1053,44 @@ class _FarmGameState extends State<FarmGame>
       if (mounted) setState(() => busy = false);
     }
     if (!mounted || record == null || backend.token != session) return;
+    Future<Map<String, dynamic>>? grading;
+    Future<Map<String, dynamic>> submit(int growth) async {
+      try {
+        final response = await backend.call('POST', '/api/quiz-runs/submit', {
+          'runId': run['id'],
+          'growth': growth,
+        });
+        if (backend.token != session) {
+          throw const ApiException('다시 입장해 주세요.', 401);
+        }
+        run = {...run, ...response};
+        return response['result'] as Map<String, dynamic>;
+      } finally {
+        grading = null;
+      }
+    }
+
     await popup<void>(
       '$subject 퀴즈',
       (_, _) => QuizSetPopup(
         questions: parseQuizQuestions(run['questions']),
         result: run['result'] as Map<String, dynamic>?,
         claimed: run['claimed'] == true,
-        submit: (growth) async {
-          final response = await backend.call('POST', '/api/quiz-runs/submit', {
-            'runId': run['id'],
-            'growth': growth,
-          });
-          if (backend.token != session)
-            throw const ApiException('다시 입장해 주세요.', 401);
-          run = {...run, ...response};
-          return response['result'] as Map<String, dynamic>;
-        },
+        submit: (growth) => grading = submit(growth),
       ),
     );
+    final pending = grading;
+    if (pending != null && mounted && backend.token == session) {
+      setState(() => busy = true);
+      try {
+        await pending;
+      } catch (error) {
+        if (mounted && backend.token == session) remoteError(error);
+        return;
+      } finally {
+        if (mounted && backend.token == session) setState(() => busy = false);
+      }
+    }
     if (!mounted ||
         record == null ||
         backend.token != session ||

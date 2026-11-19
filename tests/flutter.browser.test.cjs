@@ -479,6 +479,22 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     await wait("!document.querySelector('flt-semantics-host')?.textContent.includes('영양분이 뿌리로 쏙!')");
     assert.equal(app.store.snapshot(1).progress,100);
     assert.equal(app.store.db.prepare('SELECT COUNT(*) n FROM special_quiz_results WHERE campaign_id=?').get(raceMission.id).n,1);
+    // 닫기 직전의 일일 채점 요청도 응답을 받은 뒤 한 번만 지급합니다.
+    const claimsBeforeClose=quizClaims.length;
+    app.store.quizBank.importSets({sets:[{id:'delayed-daily',subject:'과학',title:'과학',
+      questions:Array.from({length:10},(_,i)=>({question:`과학 문제 ${i+1}`,choices:['일','이','삼','사'],correctIndex:0}))}]});
+    await clickText('미션');await clickText('퀴즈 미션');await clickText('과학 · 오늘의 10문제');
+    for(let i=0;i<10;i++){
+      await clickText('일');
+      if(i===9)await send('Fetch.enable',{patterns:[{urlPattern:'*/api/quiz-runs/submit',requestStage:'Request'}]});
+      await clickText(i===9?'채점하고 정답 보기':'다음 문제');
+    }
+    assert.ok(pausedAction);
+    await clickText('닫기');
+    await send('Fetch.continueRequest',{requestId:pausedAction});pausedAction=null;await send('Fetch.disable');
+    await wait("document.querySelector('flt-semantics-host')?.textContent.includes('다음 씨앗에 줄 영양분 +100%')");
+    assert.equal(app.store.snapshot(1).pendingGrowth,100);
+    assert.equal(quizClaims.length,claimsBeforeClose+1);
     assert.equal(errors.length, 0, JSON.stringify(errors));
     console.log('Flutter Chrome 통과: 명단·교사·퀴즈·성장·수확·랭킹·복구·학생/교사 메시지 전송·읽음 알림·기념일 3종 영양분 효과·제출 중 닫기·3가지 화면');
   } finally {

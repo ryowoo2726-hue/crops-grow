@@ -562,6 +562,10 @@ test('과목당 하루 한 세트, 기기 채점 요약과 완료 이력·보상
   await new Promise(resolve=>app.server.listen(0,'127.0.0.1',resolve));base=`http://127.0.0.1:${app.server.address().port}`;
   assert.equal((await request('/api/quiz-runs',{subject:'영어'})).data.id,run.id);
   const claim={kind:'quiz-set',runId:run.id,requestId:'quiz-set-claim-0001'};
+  const previous=(await request('/api/quiz-subjects')).data.subjects.find(s=>s.subject==='영어');
+  assert.equal(previous.previousUnclaimed,true);
+  assert.equal(previous.canOpen,true);
+  assert.equal(previous.completed,false);
   assert.equal((await request('/api/actions',claim)).data.state.progress,30);
   assert.equal((await request('/api/actions',claim)).data.state.progress,30);
   assert.equal((await request('/api/actions',{...claim,requestId:'quiz-set-claim-0002'})).data.state.progress,30,'새 요청 번호로도 중복 보상 없음');
@@ -577,6 +581,7 @@ test('과목당 하루 한 세트, 기기 채점 요약과 완료 이력·보상
   clock+=86400000;
   login.token=(await app.store.login({grade:1,classNo:1,number:1},'1234')).token;
   assert.equal((await request('/api/quiz-runs',{subject:'영어'})).status,409,'모든 세트를 소진하면 반복 출제하지 않음');
+  assert.equal((await request('/api/quiz-subjects')).data.subjects.find(s=>s.subject==='영어').canOpen,false);
   // Live file changes import once. Invalid edits leave the previous bank usable.
   const extra=set('english-3');bank.sets.push(extra);fs.writeFileSync(bankFile,JSON.stringify(bank));
   const added=(await request('/api/quiz-runs',{subject:'영어'})).data;

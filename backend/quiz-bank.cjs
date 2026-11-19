@@ -55,24 +55,30 @@ function createQuizBank(db, {now, dayAt, fail}) {
   }
 
   function availableSets(playerId, subject) {
-    const completedQuestions = new Set(db.prepare(`SELECT questions_json FROM quiz_runs
-      WHERE player_id=? AND subject=? AND result_json IS NOT NULL`).all(playerId, subject)
-      .flatMap(row => JSON.parse(row.questions_json).map(questionKey)));
-    const candidates = db.prepare(`SELECT s.* FROM quiz_sets s WHERE subject=? AND active=1
+    const history = db.prepare(`SELECT questions_json FROM quiz_runs
+      WHERE player_id=? AND subject=? AND result_json IS NOT NULL`).all(playerId, subject);
+    const columns = history.length ? 's.id,s.questions_json' : 's.id';
+    const candidates = db.prepare(`SELECT ${columns} FROM quiz_sets s WHERE subject=? AND active=1
       AND NOT EXISTS(SELECT 1 FROM quiz_runs r WHERE r.player_id=? AND r.set_id=s.id AND r.result_json IS NOT NULL)
       ORDER BY s.id`).all(subject, playerId);
-    if (!completedQuestions.size) return candidates;
+    if (!history.length || !candidates.length) return candidates;
+    const completedQuestions = new Set(history.flatMap(row => JSON.parse(row.questions_json).map(questionKey)));
     return candidates.filter(set => JSON.parse(set.questions_json).every(q => !completedQuestions.has(questionKey(q))));
   }
 
+  const currentRunFilter = `FROM quiz_runs WHERE player_id=? AND subject=? AND
+    (day=? OR (result_json IS NOT NULL AND claimed=0)) ORDER BY day,id LIMIT 1`;
+
   function subjects(playerId) {
-    return {day:dayAt(now()), subjects:db.prepare(`SELECT subject FROM quiz_sets WHERE active=1
+    const day = dayAt(now());
+    return {day, subjects:db.prepare(`SELECT subject FROM quiz_sets WHERE active=1
       UNION SELECT subject FROM quiz_runs WHERE player_id=? AND
-      (day=? OR (result_json IS NOT NULL AND claimed=0)) ORDER BY subject`).all(playerId, dayAt(now())).map(row => {
-      const today = db.prepare('SELECT id,result_json,claimed FROM quiz_runs WHERE player_id=? AND subject=? AND day=?')
-        .get(playerId, row.subject, dayAt(now()));
+      (day=? OR (result_json IS NOT NULL AND claimed=0)) ORDER BY subject`).all(playerId, day).map(row => {
+      const run = db.prepare(`SELECT day,result_json IS NOT NULL AS completed,claimed ${currentRunFilter}`)
+        .get(playerId, row.subject, day);
       const remaining = availableSets(playerId, row.subject).length;
-      return {subject:row.subject, remaining, completed:!!today?.result_json, claimed:!!today?.claimed};
+      return {subject:row.subject, remaining, canOpen:!!run || remaining>0, previousUnclaimed:!!run && run.day!==day,
+        completed:run?.day===day && !!run.completed, claimed:!!run?.claimed};
     })};
   }
 
@@ -88,15 +94,14 @@ function createQuizBank(db, {now, dayAt, fail}) {
     db.exec('BEGIN IMMEDIATE');
     try {
       // An unclaimed result survives midnight and can be collected after reconnecting.
-      let run = db.prepare(`SELECT * FROM quiz_runs WHERE player_id=? AND subject=? AND
-        (day=? OR (result_json IS NOT NULL AND claimed=0)) ORDER BY day,id LIMIT 1`)
-        .get(playerId, input.subject, dayAt(now()));
+      const day = dayAt(now());
+      let run = db.prepare(`SELECT * ${currentRunFilter}`).get(playerId, input.subject, day);
       if (!run) {
         const available = availableSets(playerId, input.subject);
         if (!available.length) fail(409, '새 문제가 준비되면 다시 풀 수 있어요.');
         const set = available[crypto.randomInt(available.length)];
-        const inserted = db.prepare('INSERT INTO quiz_runs(player_id,day,subject,set_id,questions_json) VALUES(?,?,?,?,?)')
-          .run(playerId, dayAt(now()), set.subject, set.id, set.questions_json);
+        const inserted = db.prepare(`INSERT INTO quiz_runs(player_id,day,subject,set_id,questions_json)
+          SELECT ?,?,subject,id,questions_json FROM quiz_sets WHERE id=?`).run(playerId, day, set.id);
         run = db.prepare('SELECT * FROM quiz_runs WHERE id=?').get(inserted.lastInsertRowid);
       }
       db.exec('COMMIT');
