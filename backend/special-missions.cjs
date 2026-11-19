@@ -3,6 +3,7 @@ const commemorations = require('./commemorative-missions.cjs');
 const segmenter = new Intl.Segmenter('ko', {granularity:'grapheme'});
 const gratitudeTitle = '감사의 말 전하기';
 const gratitudeDescription = '고마운 학생의 학년·반·번호 또는 선생님의 이름을 골라 감사의 말을 10글자 이상 작성해 주세요. 서로 다른 4명까지, 한 명당 성장도 25%를 받아요. 관리자가 확인한 뒤 메시지를 전달해요.';
+const missionKinds = new Set(['gratitude','custom','off',...Object.keys(commemorations)]);
 
 function createSpecialMissions(db, {now, fail, profileOf}) {
   const latest = () => db.prepare('SELECT * FROM special_campaigns ORDER BY id DESC LIMIT 1').get();
@@ -15,7 +16,7 @@ function createSpecialMissions(db, {now, fail, profileOf}) {
       ...(content ? {poster:content.poster} : {})};
   }
   function activate(input) {
-    if (!['gratitude','patriots','farmers','custom','off'].includes(input.kind) || typeof input.requestId !== 'string' ||
+    if (!missionKinds.has(input.kind) || typeof input.requestId !== 'string' ||
         !/^[a-zA-Z0-9_-]{16,100}$/.test(input.requestId)) fail(400,'미션 종류와 요청 번호를 확인하세요.');
     if ((input.title != null && typeof input.title !== 'string') || (input.description != null && typeof input.description !== 'string'))
       fail(400,'미션 제목과 내용을 확인하세요.');

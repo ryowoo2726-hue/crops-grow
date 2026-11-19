@@ -71,7 +71,7 @@ CREATE INDEX IF NOT EXISTS quiz_runs_history ON quiz_runs(player_id, set_id);
 CREATE TABLE IF NOT EXISTS special_campaigns (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   request_id TEXT NOT NULL UNIQUE,
-  kind TEXT NOT NULL CHECK(kind IN ('gratitude','patriots','farmers','custom','off')),
+  kind TEXT NOT NULL CHECK(kind IN ('gratitude','patriots','farmers','student-independence','custom','off')),
   title TEXT NOT NULL, description TEXT NOT NULL, created_at TEXT NOT NULL,
   content_json TEXT
 ) STRICT;
@@ -106,4 +106,4 @@ CREATE TABLE IF NOT EXISTS special_quiz_results (
   created_at TEXT NOT NULL,
   PRIMARY KEY(campaign_id,player_id)
 ) STRICT;
-PRAGMA user_version = 7;
+PRAGMA user_version = 8;

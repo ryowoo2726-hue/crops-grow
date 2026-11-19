@@ -389,7 +389,15 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
       await wait(startVisible);
       return ()=>clickText('문제 풀기');
     };
-    for(const kind of ['patriots','farmers']){
+    const posterLabels={patriots:'11월 17일 순국선열의 날, 잊지 않겠습니다.',farmers:'벼 이삭을 안고 웃는 농업인',
+      'student-independence':'11월 3일 학생독립운동기념일 함께 기억해요.'};
+    for(const kind of Object.keys(posterLabels)){
+      if(kind==='student-independence'){
+        app.store.db.prepare('UPDATE players SET progress=0,revision=revision+1 WHERE id=1').run();
+        app.store.db.prepare('UPDATE special_quiz_results SET reward_remaining=0 WHERE player_id=1').run();
+        await clickText('도감');await clickText('내 밭');
+        await wait("document.querySelector('flt-semantics-host')?.textContent.includes('0 / 100%')");
+      }
       const mission=app.store.specialMissions.activate({kind,requestId:'browser-commemoration-'+kind});
       const questions=JSON.parse(app.store.db.prepare('SELECT content_json FROM special_campaigns WHERE id=?').get(mission.id).content_json).questions;
       for(const [width,height] of [[390,844],[320,568],[1920,1080]]){
@@ -399,7 +407,7 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
         await wait(`document.querySelector('flt-semantics-host')?.textContent.includes('${mission.poster.sections[0].title}')`);
         assert.equal(await run("document.querySelector('flt-semantics-host').textContent.includes('자료:')"),false);
         assert.equal(await run("/독립 · 희생 · 기억|흙 · 수확 · 감사/.test(document.querySelector('flt-semantics-host').textContent)"),false);
-        if(kind==='patriots')assert.equal(await run("!!document.querySelector('[aria-label=\"11월 17일 순국선열의 날, 잊지 않겠습니다.\"]')"),true);
+        await wait(`!!document.querySelector('[aria-label="${posterLabels[kind]}"]')`);
         const shot=await send('Page.captureScreenshot');
         fs.writeFileSync(path.join(os.tmpdir(),`growgame-${kind}-poster-${width}.png`),Buffer.from(shot.data,'base64'));
         await clickText('닫기');
@@ -426,7 +434,7 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
       const effectShot=await send('Page.captureScreenshot');
       fs.writeFileSync(path.join(os.tmpdir(),`growgame-${kind}-nutrient-effect.png`),Buffer.from(effectShot.data,'base64'));
       await wait("!document.querySelector('flt-semantics-host')?.textContent.includes('영양분이 뿌리로 쏙!')");
-      const expected=kind==='patriots'?70:100;
+      const expected=kind==='farmers'?100:70;
       assert.equal(app.store.snapshot(1).progress,expected);
       assert.equal(await run(`document.querySelector('flt-semantics-host').textContent.includes('${expected} / 100%')`),true);
       const submissionsBefore=specialSubmissions.length;
@@ -463,7 +471,7 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     assert.equal(app.store.snapshot(1).progress,100);
     assert.equal(app.store.db.prepare('SELECT COUNT(*) n FROM special_quiz_results WHERE campaign_id=?').get(raceMission.id).n,1);
     assert.equal(errors.length, 0, JSON.stringify(errors));
-    console.log('Flutter Chrome 통과: 명단·교사·퀴즈·성장·수확·랭킹·복구·학생/교사 메시지 전송·읽음 알림·기념일 2종 영양분 효과·제출 중 닫기·3가지 화면');
+    console.log('Flutter Chrome 통과: 명단·교사·퀴즈·성장·수확·랭킹·복구·학생/교사 메시지 전송·읽음 알림·기념일 3종 영양분 효과·제출 중 닫기·3가지 화면');
   } finally {
     socket?.close(); proc.kill();
     if(app.server.listening) await stopApi();

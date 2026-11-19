@@ -25,7 +25,7 @@ function openStore(directory, {now = Date.now, dailyLimit = false} = {}) {
   const db = new DatabaseSync(path.join(directory, 'growgame.sqlite'));
   db.exec('PRAGMA busy_timeout=3000');
   const version = db.prepare('PRAGMA user_version').get().user_version;
-  if (version > 7) { db.close(); throw Error('이 서버보다 새로운 DB입니다. 서버를 업데이트하세요.'); }
+  if (version > 8) { db.close(); throw Error('이 서버보다 새로운 DB입니다. 서버를 업데이트하세요.'); }
   const schema = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8');
   const oldColumns = db.prepare('PRAGMA table_info(players)').all().map(column => column.name);
   if (oldColumns.length && !oldColumns.includes('role')) {
@@ -46,15 +46,15 @@ function openStore(directory, {now = Date.now, dailyLimit = false} = {}) {
     db.exec('PRAGMA foreign_keys=ON');
   }
   const campaignColumns = db.prepare('PRAGMA table_info(special_campaigns)').all().map(column => column.name);
-  if (campaignColumns.length && !campaignColumns.includes('content_json')) {
-    // 기존 감사 메시지의 campaign_id를 유지하면서 허용 미션 종류를 확장합니다.
+  if (campaignColumns.length && version < 8) {
+    // 기존 감사 메시지와 퀴즈 결과의 campaign_id를 유지합니다.
     db.exec('PRAGMA foreign_keys=OFF; BEGIN IMMEDIATE');
     try {
       const campaignSchema = schema.match(/CREATE TABLE IF NOT EXISTS special_campaigns \([\s\S]*?\) STRICT;/)[0];
-      db.exec(campaignSchema.replace('special_campaigns (', 'special_campaigns_v5 ('));
-      db.exec(`INSERT INTO special_campaigns_v5(id,request_id,kind,title,description,created_at)
-        SELECT id,request_id,kind,title,description,created_at FROM special_campaigns;
-        DROP TABLE special_campaigns; ALTER TABLE special_campaigns_v5 RENAME TO special_campaigns;`);
+      db.exec(campaignSchema.replace('special_campaigns (', 'special_campaigns_v8 ('));
+      const columns = db.prepare('PRAGMA table_info(special_campaigns)').all().map(column => column.name).join(',');
+      db.exec(`INSERT INTO special_campaigns_v8(${columns}) SELECT ${columns} FROM special_campaigns;
+        DROP TABLE special_campaigns; ALTER TABLE special_campaigns_v8 RENAME TO special_campaigns;`);
       if (db.prepare('PRAGMA foreign_key_check').all().length) throw Error('DB 연결 기록을 확인하세요.');
       db.exec('COMMIT');
     } catch (error) { db.exec('ROLLBACK'); db.close(); throw error; }

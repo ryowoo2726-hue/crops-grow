@@ -8,25 +8,30 @@ class CommemorativePoster extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final poster = mission['poster'] as Map;
-    final farmers = mission['kind'] == 'farmers';
+    final kind = mission['kind'];
+    final farmers = kind == 'farmers';
     final ink = farmers ? const Color(0xff315637) : const Color(0xff253b58);
     final accent = farmers ? const Color(0xffc38b2b) : const Color(0xffb34c45);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        if (!farmers)
+        if (kind == 'patriots')
           Image.asset(
             'assets/posters/patriots.png',
             fit: BoxFit.contain,
             semanticLabel: '11월 17일 순국선열의 날, 잊지 않겠습니다.',
           )
+        else if (kind == 'student-independence')
+          Image.asset(
+            'assets/posters/student-independence.png',
+            fit: BoxFit.contain,
+            semanticLabel: '11월 3일 학생독립운동기념일 함께 기억해요.',
+          )
         else
           Container(
             padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
-              color: farmers
-                  ? const Color(0xfffff5db)
-                  : const Color(0xfff3f1eb),
+              color: const Color(0xfffff5db),
               borderRadius: BorderRadius.circular(20),
               border: Border.all(color: ink.withValues(alpha: .18)),
             ),
@@ -51,18 +56,12 @@ class CommemorativePoster extends StatelessWidget {
                 ),
                 const SizedBox(height: 20),
                 Center(
-                  child: Container(
-                    width: 106,
-                    height: 106,
-                    decoration: BoxDecoration(
-                      color: ink,
-                      shape: BoxShape.circle,
-                    ),
-                    child: Icon(
-                      farmers ? Icons.grass : Icons.local_florist_outlined,
-                      size: 66,
-                      color: farmers ? const Color(0xffffd875) : Colors.white,
-                    ),
+                  child: Image.asset(
+                    'assets/posters/farmers.webp',
+                    width: 210,
+                    height: 210,
+                    fit: BoxFit.contain,
+                    semanticLabel: '벼 이삭을 안고 웃는 농업인',
                   ),
                 ),
                 const SizedBox(height: 18),

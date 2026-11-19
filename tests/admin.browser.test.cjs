@@ -199,9 +199,10 @@ const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
       assert.ok(teacherInbox.items.some(item=>item.id===teacherMessage.id));
       assert.equal(teacherInbox.unreadCount,1);
       await run("document.querySelector('[data-panel=\"special-panel\"]').click()");
-      for(const kind of ['patriots','farmers']){
+      const missionTitles={patriots:'순국선열의 날',farmers:'농업인의 날','student-independence':'학생독립운동기념일'};
+      for(const [kind,title] of Object.entries(missionTitles)){
         await run(`document.getElementById('special-kind').value='${kind}';document.getElementById('special-kind').dispatchEvent(new Event('change'));document.querySelector('#special-form button[type=submit]').click()`);
-        await wait(`document.getElementById('active-special').textContent.includes('${kind==='patriots'?'순국선열의 날':'농업인의 날'}')`);
+        await wait(`document.getElementById('active-special').textContent.includes('${title}')`);
         assert.equal(app.store.special().kind,kind);
         assert.equal(await run("document.documentElement.scrollWidth<=innerWidth"),true);
       }
