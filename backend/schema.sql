@@ -65,9 +65,11 @@ CREATE TABLE IF NOT EXISTS quiz_runs (
   day TEXT NOT NULL, subject TEXT NOT NULL, set_id TEXT NOT NULL REFERENCES quiz_sets(id),
   questions_json TEXT NOT NULL, result_json TEXT,
   claimed INTEGER NOT NULL DEFAULT 0 CHECK(claimed IN (0,1)),
+  reward_remaining INTEGER NOT NULL DEFAULT 0 CHECK(reward_remaining BETWEEN 0 AND 100),
   UNIQUE(player_id, subject, day)
 ) STRICT;
 CREATE INDEX IF NOT EXISTS quiz_runs_history ON quiz_runs(player_id, set_id);
+CREATE INDEX IF NOT EXISTS quiz_runs_pending_growth ON quiz_runs(player_id) WHERE reward_remaining>0;
 CREATE TABLE IF NOT EXISTS special_campaigns (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   request_id TEXT NOT NULL UNIQUE,
@@ -106,4 +108,5 @@ CREATE TABLE IF NOT EXISTS special_quiz_results (
   created_at TEXT NOT NULL,
   PRIMARY KEY(campaign_id,player_id)
 ) STRICT;
-PRAGMA user_version = 8;
+CREATE INDEX IF NOT EXISTS special_quiz_pending_growth ON special_quiz_results(player_id) WHERE reward_remaining>0;
+PRAGMA user_version = 9;

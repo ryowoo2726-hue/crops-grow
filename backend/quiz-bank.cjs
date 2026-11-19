@@ -58,10 +58,11 @@ function createQuizBank(db, {now, dayAt, fail}) {
     const completedQuestions = new Set(db.prepare(`SELECT questions_json FROM quiz_runs
       WHERE player_id=? AND subject=? AND result_json IS NOT NULL`).all(playerId, subject)
       .flatMap(row => JSON.parse(row.questions_json).map(questionKey)));
-    return db.prepare(`SELECT s.* FROM quiz_sets s WHERE subject=? AND active=1
+    const candidates = db.prepare(`SELECT s.* FROM quiz_sets s WHERE subject=? AND active=1
       AND NOT EXISTS(SELECT 1 FROM quiz_runs r WHERE r.player_id=? AND r.set_id=s.id AND r.result_json IS NOT NULL)
-      ORDER BY s.id`).all(subject, playerId)
-      .filter(set => JSON.parse(set.questions_json).every(q => !completedQuestions.has(questionKey(q))));
+      ORDER BY s.id`).all(subject, playerId);
+    if (!completedQuestions.size) return candidates;
+    return candidates.filter(set => JSON.parse(set.questions_json).every(q => !completedQuestions.has(questionKey(q))));
   }
 
   function subjects(playerId) {
@@ -144,9 +145,7 @@ function createQuizBank(db, {now, dayAt, fail}) {
     if (!run || !run.result_json) fail(409, '먼저 10문제의 채점을 완료하세요.');
     if (run.claimed) return 0;
     const growth = JSON.parse(run.result_json).growth;
-    const player = db.prepare('SELECT crop_id,progress FROM players WHERE id=?').get(playerId);
-    if (growth > 0 && (!player.crop_id || player.progress >= 100)) fail(409, '수확하고 작물을 심은 뒤 퀴즈 보상을 받아 주세요.');
-    db.prepare('UPDATE quiz_runs SET claimed=1 WHERE id=?').run(run.id);
+    db.prepare('UPDATE quiz_runs SET claimed=1,reward_remaining=? WHERE id=?').run(growth,run.id);
     return growth;
   }
   return {importSets, subjects, start, submit, claim};

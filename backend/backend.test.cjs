@@ -89,7 +89,7 @@ test('v6 감사 메시지 이관: id·수신 학생·읽음·전송·남은 보�
   app.store.db.exec(`INSERT INTO messages_v6(${columns}) SELECT ${columns} FROM gratitude_messages;
     DROP TABLE gratitude_messages; ALTER TABLE messages_v6 RENAME TO gratitude_messages; PRAGMA user_version=6;`);
   app.store.db.close();app=createBackend({directory});
-  assert.equal(app.store.db.prepare('PRAGMA user_version').get().user_version,8);
+  assert.equal(app.store.db.prepare('PRAGMA user_version').get().user_version,9);
   assert.deepEqual(app.store.snapshot(senderId),before);
   assert.deepEqual(app.store.specialMissions.inbox(receiverId,0),inbox);
   assert.deepEqual(app.store.db.prepare('SELECT * FROM gratitude_messages ORDER BY id').all().map(({recipient_role,...row})=>{assert.equal(recipient_role,'student');return row;}),rows);
@@ -118,7 +118,7 @@ test('읽지 않은 메시지: v5 이전·수신자 권한·전달 상태·페�
   // 기존 v5 DB에는 읽음 열이 없습니다. 메시지와 전달 시각은 그대로 이관합니다.
   app.store.db.exec('ALTER TABLE gratitude_messages DROP COLUMN read_at; PRAGMA user_version=5;');
   app.store.db.close();app=createBackend({directory,now:()=>clock});
-  assert.equal(app.store.db.prepare('PRAGMA user_version').get().user_version,8);
+  assert.equal(app.store.db.prepare('PRAGMA user_version').get().user_version,9);
   assert.deepEqual(app.store.snapshot(receiverId),before);
   assert.deepEqual(app.store.db.prepare('PRAGMA foreign_key_check').all(),[]);
   const start=()=>new Promise(resolve=>app.server.listen(0,'127.0.0.1',resolve));
@@ -214,7 +214,7 @@ test('기념일 특별 퀴즈: 관리자 선택, 10문항, 서버 채점, 재시
   await new Promise(resolve=>app.server.close(resolve));app.store.db.close();
   app=createBackend({directory,adminCredentials:await hashPassword('1234')});await start();
   assert.equal((await request('/api/special-quiz?missionId='+lastMission.id)).data.result.correctCount,7);
-  assert.equal(app.store.db.prepare('PRAGMA user_version').get().user_version,8);
+  assert.equal(app.store.db.prepare('PRAGMA user_version').get().user_version,9);
   const replacement=(await request('/api/admin/special',{
     kind:'student-independence',requestId:'special-quiz-replacement',
   },(await request('/api/admin/session',{password:'1234'},'')).data.token)).data.mission;
@@ -265,7 +265,7 @@ test('v4 미션 이전: 기존 감사 메시지·학생·보상 보존과 노션
   assert.ok(delivered);
   app.store.specialMissions.deliver(saved.id);
   assert.equal(app.store.specialMissions.review('sent',0).items[0].deliveredAt,delivered);
-  assert.equal(app.store.db.prepare('PRAGMA user_version').get().user_version,8);
+  assert.equal(app.store.db.prepare('PRAGMA user_version').get().user_version,9);
   assert.deepEqual(app.store.db.prepare('PRAGMA foreign_key_check').all(),[]);
 });
 
@@ -435,7 +435,7 @@ test('이전 v2 DB의 학생·PIN·세션·수확을 최신 스키마로 이관�
   assert.equal(state.profile.name,'이관학생');assert.equal(state.progress,50);assert.equal(state.harvestCount,1);
   assert.equal((await app.store.login({grade:1,classNo:12,number:1},'1234')).state.profile.classNo,12);
   assert.equal((await app.store.login({role:'teacher',name:'이관교사'},'4321')).state.profile.role,'teacher');
-  assert.equal(app.store.db.prepare('PRAGMA user_version').get().user_version,8);
+  assert.equal(app.store.db.prepare('PRAGMA user_version').get().user_version,9);
   assert.deepEqual(app.store.db.prepare('PRAGMA foreign_key_check').all(),[]);
 });
 
@@ -555,7 +555,9 @@ test('과목당 하루 한 세트, 기기 채점 요약과 완료 이력·보상
   assert.equal((await request('/api/quiz-runs',{subject:'과학'})).data.id,science.id,'다른 과목은 같은 날 별도로 한 세트 풀이');
   // Reward collection can be resumed after midnight and a process restart.
   clock+=120000;
-  await new Promise(resolve=>app.server.close(resolve));app.store.db.close();
+  await new Promise(resolve=>app.server.close(resolve));
+  app.store.db.exec('DROP INDEX quiz_runs_pending_growth; ALTER TABLE quiz_runs DROP COLUMN reward_remaining; PRAGMA user_version=8');
+  app.store.db.close();
   app=createBackend({directory,now:()=>clock,dailyLimit:true,quizBankFile:bankFile});
   await new Promise(resolve=>app.server.listen(0,'127.0.0.1',resolve));base=`http://127.0.0.1:${app.server.address().port}`;
   assert.equal((await request('/api/quiz-runs',{subject:'영어'})).data.id,run.id);
@@ -570,6 +572,7 @@ test('과목당 하루 한 세트, 기기 채점 요약과 완료 이력·보상
   const allCorrect=Array.from({length:10},(_,i)=>i%4);
   await request('/api/quiz-runs/submit',{runId:next.id,growth:100});
   assert.equal((await request('/api/actions',{kind:'quiz-set',runId:next.id,requestId:'english-claim-0003'})).data.state.progress,100,'성장도 100% 상한');
+  assert.equal(app.store.snapshot(player).pendingGrowth,60);
   assert.equal((await request('/api/quiz-runs',{subject:'영어'})).data.id,next.id,'완료한 날에는 같은 결과 조회');
   clock+=86400000;
   login.token=(await app.store.login({grade:1,classNo:1,number:1},'1234')).token;
@@ -585,6 +588,18 @@ test('과목당 하루 한 세트, 기기 채점 요약과 완료 이력·보상
   bank.sets.at(-1).questions[0].correctIndex=3;fs.writeFileSync(bankFile,JSON.stringify(bank));
   await request('/api/quiz-subjects');
   assert.equal((await request('/api/quiz-runs/submit',{runId:added.id,answers:allCorrect})).data.result.correctCount,10);
+  app.store.action(player,{kind:'harvest',requestId:'carry-first-harvest'});
+  const plant={kind:'plant',cropId:'apple',requestId:'carry-first-plant'};
+  const full=app.store.action(player,plant);
+  assert.equal(full.growth,100,'결과 창을 닫기 전에 끊겨도 다음 씨앗에 지급');
+  assert.equal(full.state.progress,100);
+  assert.equal(full.state.pendingGrowth,60,'한 씨앗에 다 담지 못한 영양분 보존');
+  assert.deepEqual(app.store.action(player,plant),full,'심기 재시도는 같은 결과');
+  app.store.action(player,{kind:'harvest',requestId:'carry-next-harvest'});
+  const carried=app.store.action(player,{kind:'plant',cropId:'peach',requestId:'carry-second-plant'});
+  assert.equal(carried.growth,60);
+  assert.equal(carried.state.progress,60);
+  assert.equal(carried.state.pendingGrowth,0);
   const profile={grade:1,classNo:1,number:1};app.store.deleteStudent(profile);
   assert.equal(app.store.db.prepare('SELECT COUNT(*) n FROM quiz_runs WHERE player_id=?').get(player).n,0);
   assert.equal(app.store.db.prepare('SELECT COUNT(*) n FROM quiz_sets').get().n,4,'학생 삭제 후 공통 문제 보존');
@@ -596,10 +611,11 @@ test('과목당 하루 한 세트, 기기 채점 요약과 완료 이력·보상
   assert.equal(app.store.action(second,{kind:'quiz-set',runId:empty.id,requestId:'zero-growth-000001'}).growth,0,'0점도 완료되고 보상은 없음');
   const pending=app.store.quizBank.start(second,{subject:'과학'});
   app.store.quizBank.submit(second,{runId:pending.id,answers:allCorrect});
-  assert.throws(()=>app.store.action(second,{kind:'quiz-set',runId:pending.id,requestId:'pending-growth-0001'}),/수확/);
-  assert.equal(app.store.db.prepare('SELECT claimed FROM quiz_runs WHERE id=?').get(pending.id).claimed,0,'받지 못한 보상 유지');
   app.store.action(second,{kind:'harvest',requestId:'pending-harvest-001'});
-  app.store.action(second,{kind:'plant',cropId:'apple',requestId:'pending-plant-00001'});
+  const banked=app.store.action(second,{kind:'quiz-set',runId:pending.id,requestId:'pending-growth-0001'});
+  assert.equal(banked.state.progress,0);
+  assert.equal(banked.state.pendingGrowth,100,'빈 밭에서 받은 퀴즈 보상 보관');
+  assert.equal(app.store.action(second,{kind:'plant',cropId:'apple',requestId:'pending-plant-00001'}).growth,100);
   assert.equal(app.store.action(second,{kind:'quiz-set',runId:pending.id,requestId:'pending-growth-0001'}).state.progress,100);
   fs.writeFileSync(bankFile,'{ invalid JSON');
   assert.equal((await request('/api/quiz-subjects',null,secondSession.token)).data.subjects.length,2,'JSON 오류에도 마지막 정상 문제 유지');
@@ -607,7 +623,7 @@ test('과목당 하루 한 세트, 기기 채점 요약과 완료 이력·보상
   await new Promise(resolve=>app.server.close(resolve));
   app.store.db.exec('DROP TABLE quiz_runs; DROP TABLE quiz_sets; PRAGMA user_version=1;');app.store.db.close();
   app=createBackend({directory,now:()=>clock});
-  assert.equal(app.store.db.prepare('PRAGMA user_version').get().user_version,8);
+  assert.equal(app.store.db.prepare('PRAGMA user_version').get().user_version,9);
   assert.equal(app.store.snapshot(second).harvestCount,1);
 });
 

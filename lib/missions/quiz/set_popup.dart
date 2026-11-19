@@ -107,7 +107,10 @@ class _QuizSetPopupState extends State<QuizSetPopup> {
           if (widget.submitAnswers == null &&
               !widget.claimed &&
               (result!['growth'] as num) > 0)
-            const WordText('작물은 최대 100%까지 자라요.', textAlign: TextAlign.center),
+            const WordText(
+              '100%를 넘는 영양분은 다음 씨앗을 심을 때 받아요.',
+              textAlign: TextAlign.center,
+            ),
           const SizedBox(height: 16),
           for (var i = 0; i < questions.length; i++)
             _AnswerCard(

@@ -857,9 +857,9 @@ class _FarmGameState extends State<FarmGame>
     int? quizRunId,
   }) async {
     if (busy ||
-        !cropReady ||
         (quizRunId == null &&
-            !canGrow(r, kind, waterRemainingMs: waterRemainingMs))) {
+            (!cropReady ||
+                !canGrow(r, kind, waterRemainingMs: waterRemainingMs)))) {
       return;
     }
     final before = (r['progress'] as num).toDouble();
@@ -1074,18 +1074,7 @@ class _FarmGameState extends State<FarmGame>
         run['result'] == null ||
         run['claimed'] == true)
       return;
-    final growth = (run['result'] as Map)['growth'] as int;
-    if (growth == 0) {
-      setState(() => busy = true);
-      await remoteAction('quiz-set', quizRunId: run['id'] as int);
-      if (mounted) setState(() => busy = false);
-    } else if (r['cropId'] == null || (r['progress'] as num) >= 100) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('수확하고 작물을 심은 뒤 퀴즈를 다시 열면 영양분을 받을 수 있어요.')),
-      );
-    } else {
-      await grow('mission', quizRunId: run['id'] as int);
-    }
+    await grow('mission', quizRunId: run['id'] as int);
   }
 
   Future<void> remoteMission(String type) async {
@@ -1565,10 +1554,37 @@ class _FarmGameState extends State<FarmGame>
     );
     if (crop == null || !mounted) return;
     if (remote) {
-      setState(() => busy = true);
-      final result = await remoteAction('plant', crop: crop);
-      if (mounted) setState(() => busy = false);
-      if (result != null && mounted) showTab(0);
+      final session = backend.token;
+      setState(() {
+        busy = true;
+        tab = 0;
+        pendingMissionProgress = 0;
+      });
+      try {
+        final result = await remoteAction('plant', crop: crop);
+        if (!mounted || result == null || r['cropId'] != crop) return;
+        final growth = result['growth'] as int? ?? 0;
+        if (growth > 0 &&
+            r['progress'] == growth &&
+            !MediaQuery.disableAnimationsOf(context)) {
+          await warmCrop(crop);
+          if (mounted &&
+              record != null &&
+              backend.token == session &&
+              r['cropId'] == crop) {
+            await playMissionReward(0);
+          }
+        }
+      } on ApiException {
+        // The seed and its growth are saved even if the crop images fail to load.
+      } finally {
+        if (mounted && backend.token == session) {
+          setState(() {
+            pendingMissionProgress = null;
+            busy = false;
+          });
+        }
+      }
       return;
     }
     setState(() {
@@ -1898,6 +1914,7 @@ class _FarmGameState extends State<FarmGame>
   Widget farmFrame() {
     final crop = r['cropId'] as String?;
     final progress = displayedProgress;
+    final pending = r['pendingGrowth'] as int? ?? 0;
     final effect = rewardGeometry;
     final waterMinutes = (waterRemainingMs + 59999) ~/ 60000;
     final waterHours = waterMinutes ~/ 60;
@@ -2068,6 +2085,8 @@ class _FarmGameState extends State<FarmGame>
                   ? watering
                         ? '물을 주고 있어요!'
                         : '잠시만요, 확인 중이에요…'
+                  : pending > 0 && (crop == null || r['progress'] >= 100)
+                  ? '다음 씨앗에 줄 영양분 +$pending%'
                   : r['progress'] >= 100
                   ? '수확할 준비 완료!'
                   : crop == null

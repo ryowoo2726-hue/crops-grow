@@ -33,16 +33,17 @@ function createSpecialMissions(db, {now, fail, profileOf}) {
     return current();
   }
   function pendingGrowth(playerId) {
-    return ['gratitude_messages','special_quiz_results'].reduce((total,table) =>
-      total + db.prepare(`SELECT COALESCE(SUM(reward_remaining),0) growth FROM ${table} WHERE player_id=?`).get(playerId).growth,0);
+    return ['gratitude_messages','special_quiz_results','quiz_runs'].reduce((total,table) =>
+      total + db.prepare(`SELECT COALESCE(SUM(reward_remaining),0) growth FROM ${table} WHERE player_id=? AND reward_remaining>0`).get(playerId).growth,0);
   }
   // 남은 영양분은 다음 작물을 심을 때 이어서 지급합니다.
   function claimGrowth(playerId) {
     const player = db.prepare('SELECT crop_id,progress FROM players WHERE id=?').get(playerId);
     let capacity = player.crop_id ? 100 - player.progress : 0;
     let growth = 0;
-    for (const [table,key] of [['gratitude_messages','id'],['special_quiz_results','campaign_id']]) {
-      const pending = db.prepare(`SELECT ${key} id,reward_remaining FROM ${table} WHERE player_id=? AND reward_remaining>0 ORDER BY created_at,${key}`).all(playerId);
+    for (const [table,key,order] of [['gratitude_messages','id','created_at,id'],['special_quiz_results','campaign_id','created_at,campaign_id'],['quiz_runs','id','id']]) {
+      if (!capacity) break;
+      const pending = db.prepare(`SELECT ${key} id,reward_remaining FROM ${table} WHERE player_id=? AND reward_remaining>0 ORDER BY ${order}`).all(playerId);
       for (const message of pending) {
         const amount = Math.min(capacity,message.reward_remaining);
         if (!amount) break;
@@ -51,7 +52,7 @@ function createSpecialMissions(db, {now, fail, profileOf}) {
         growth += amount;
       }
     }
-    if (growth) db.prepare('UPDATE players SET progress=progress+?,revision=revision+1 WHERE id=?').run(growth,playerId);
+    db.prepare('UPDATE players SET progress=progress+?,revision=revision+1 WHERE id=?').run(growth,playerId);
     return growth;
   }
   function status(playerId, campaignId = current()?.id) {

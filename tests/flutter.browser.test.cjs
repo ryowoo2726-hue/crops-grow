@@ -444,6 +444,15 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
       assert.equal(await run("document.querySelector('flt-semantics-host').textContent.includes('영양분이 뿌리로 쏙!')"),false,'완료 결과를 다시 닫아도 효과 재생 없음');
       assert.equal(app.store.snapshot(1).progress,expected,'완료 결과 재열기로 중복 성장 없음');
       assert.equal(specialSubmissions.length,submissionsBefore,'완료 결과 재열기로 재제출 없음');
+      if(kind==='farmers'){
+        await wait("document.querySelector('flt-semantics-host')?.textContent.includes('다음 씨앗에 줄 영양분 +40%')");
+        await clickText('수확하기');await clickText('다음 작물 심기');await clickText('고구마');
+        await wait("document.querySelector('flt-semantics-host')?.textContent.includes('영양분이 뿌리로 쏙!')");
+        await wait("!document.querySelector('flt-semantics-host')?.textContent.includes('영양분이 뿌리로 쏙!')");
+        await wait("document.querySelector('flt-semantics-host')?.textContent.includes('40 / 100%')");
+        assert.equal(app.store.snapshot(1).cropId,'sweet-potato');
+        assert.equal(app.store.snapshot(1).pendingGrowth,0);
+      }
     }
     // 제출 응답 전에 창을 닫아도 보상 처리 중 입력을 막고 응답 후 효과를 이어갑니다.
     app.store.db.prepare("UPDATE players SET crop_id='rice',progress=0,revision=revision+1 WHERE id=1").run();

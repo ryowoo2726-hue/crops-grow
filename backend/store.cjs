@@ -25,7 +25,7 @@ function openStore(directory, {now = Date.now, dailyLimit = false} = {}) {
   const db = new DatabaseSync(path.join(directory, 'growgame.sqlite'));
   db.exec('PRAGMA busy_timeout=3000');
   const version = db.prepare('PRAGMA user_version').get().user_version;
-  if (version > 8) { db.close(); throw Error('이 서버보다 새로운 DB입니다. 서버를 업데이트하세요.'); }
+  if (version > 9) { db.close(); throw Error('이 서버보다 새로운 DB입니다. 서버를 업데이트하세요.'); }
   const schema = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8');
   const oldColumns = db.prepare('PRAGMA table_info(players)').all().map(column => column.name);
   if (oldColumns.length && !oldColumns.includes('role')) {
@@ -77,6 +77,10 @@ function openStore(directory, {now = Date.now, dailyLimit = false} = {}) {
       db.exec('COMMIT');
     } catch (error) { db.exec('ROLLBACK'); db.close(); throw error; }
     db.exec('PRAGMA foreign_keys=ON');
+  }
+  const runColumns = db.prepare('PRAGMA table_info(quiz_runs)').all();
+  if (runColumns.length && !runColumns.some(column => column.name === 'reward_remaining')) {
+    db.exec('ALTER TABLE quiz_runs ADD COLUMN reward_remaining INTEGER NOT NULL DEFAULT 0 CHECK(reward_remaining BETWEEN 0 AND 100)');
   }
   db.exec(schema);
   const quizBank = require('./quiz-bank.cjs').createQuizBank(db, {now, dayAt, fail});
@@ -131,7 +135,8 @@ function openStore(directory, {now = Date.now, dailyLimit = false} = {}) {
   function snapshot(id) {
     const p = getPlayer(id);
     const counts = db.prepare('SELECT crop_id, COUNT(*) count FROM harvests WHERE player_id=? GROUP BY crop_id').all(id);
-    return {profile:participantProfile(p), cropId:p.crop_id, progress:p.progress,pendingGratitudeGrowth:specialMissions.pendingGrowth(id),
+    const pendingGrowth = specialMissions.pendingGrowth(id);
+    return {profile:participantProfile(p), cropId:p.crop_id, progress:p.progress,pendingGrowth,pendingGratitudeGrowth:pendingGrowth,
       unreadMessageCount:specialMissions.unreadCount(id),
       dailyMode:dailyLimit, waterDay:p.water_day, waterCooldownMs:waterCooldown(p,now()), missionDay:p.mission_day, revision:p.revision,
       harvests:[], harvestCount:counts.reduce((n,c)=>n+c.count,0), collectionCounts:Object.fromEntries(counts.map(c=>[c.crop_id,c.count]))};
@@ -278,12 +283,15 @@ function openStore(directory, {now = Date.now, dailyLimit = false} = {}) {
       let outcome = {};
       if (input.kind==='quiz-set') {
         const growth=quizBank.claim(playerId,input.runId);
-        db.prepare('UPDATE players SET progress=MIN(100,progress+?),revision=revision+1 WHERE id=?').run(growth,playerId);
+        if (growth) specialMissions.claimGrowth(playerId);
         outcome={growth};
       } else if (input.kind==='plant') {
         if (p.crop_id!==null || !crops.has(input.cropId)) fail(409,'심을 수 있는 작물을 선택해 주세요.');
         db.prepare('UPDATE players SET crop_id=?,progress=0,revision=revision+1 WHERE id=?').run(input.cropId,playerId);
-        specialMissions.claimGrowth(playerId);
+        // Also pick up a graded quiz if the student disconnected before closing its result.
+        db.prepare(`UPDATE quiz_runs SET claimed=1,reward_remaining=json_extract(result_json,'$.growth')
+          WHERE player_id=? AND result_json IS NOT NULL AND claimed=0`).run(playerId);
+        outcome={growth:specialMissions.claimGrowth(playerId)};
       } else if (input.kind==='harvest') {
         if (!p.crop_id || p.progress<100) fail(409,'작물이 다 자라면 수확할 수 있어요.');
         const at = new Date(now()).toISOString();
