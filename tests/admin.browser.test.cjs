@@ -16,7 +16,7 @@ const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
   let chrome,socket,frontend;
   try{
     for(const p of [{grade:1,classNo:1,number:1},{grade:1,classNo:2,number:2},{grade:2,classNo:1,number:3}])await app.store.login(p,'1234');
-    app.store.importRoster([{grade:1,classNo:1,number:1,name:'가상수신자'},{grade:1,classNo:2,number:2,name:'가상발신자'},{grade:2,classNo:1,number:3,name:'가상학생'}]);
+    app.store.importRoster([{grade:1,classNo:1,number:1,name:'가상수신자'},{grade:1,classNo:2,number:2,name:'가상발신자'},{grade:2,classNo:1,number:3,name:'가상학생'},{grade:2,classNo:1,number:4,name:'가입예정학생'}]);
     app.store.db.prepare("UPDATE players SET crop_id='apple',progress=50 WHERE grade=1 AND class_no=1").run();
     app.store.db.prepare("INSERT INTO harvests(player_id,crop_id,created_at) SELECT id,'rice','2026-11-12T00:00:00Z' FROM players WHERE grade=1 AND class_no=1").run();
     await new Promise(resolve=>app.server.listen(0,'127.0.0.1',resolve));
@@ -201,14 +201,20 @@ const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
       assert.ok(teacherInbox.items.some(item=>item.id===teacherMessage.id));
       assert.equal(teacherInbox.unreadCount,1);
       if(width===390){
-        const studentId=app.store.authenticate(changed.token);
         const teacherId=app.store.authenticate(teacher.token);
-        await wait("[...document.getElementById('message-recipient').options].some(o=>o.textContent.includes('가상수신자'))");
-        const compose=async (label,message,accept)=>{
+        const compose=async (scope,label,message,accept)=>{
           confirmation=null;
           await run(`{
             const select=document.getElementById('message-recipient');
-            select.value=[...select.options].find(o=>o.textContent.includes(${JSON.stringify(label)})).value;
+            select.value=${JSON.stringify(scope)};
+            select.dispatchEvent(new Event('change'));
+            if(select.value==='student'){
+              const search=document.getElementById('message-student-search');
+              search.value=${JSON.stringify(label)};
+              search.dispatchEvent(new Event('input'));
+              document.getElementById('message-student').selectedIndex=1;
+            }
+            if(select.value==='teacher')document.getElementById('message-teacher').value=${JSON.stringify(label)};
             document.getElementById('message-content').value=${JSON.stringify(message)};
           }`);
           const click=run("document.querySelector('#compose-message button').click()");
@@ -218,16 +224,20 @@ const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
           await send('Page.handleJavaScriptDialog',{accept});
           await click;
         };
-        await compose('가상수신자','행사 개인 안내',false);
+        await compose('student','가입예정학생','행사 개인 안내',false);
         assert.equal(app.store.db.prepare('SELECT COUNT(*) n FROM admin_messages').get().n,0);
-        await compose('가상수신자','행사 개인 안내',true);
-        await wait("document.getElementById('compose-result').textContent==='1명에게 메시지를 전송했습니다.'");
-        assert.ok(app.store.specialMissions.inbox(studentId,0).items.some(item=>item.body==='행사 개인 안내'));
+        await compose('student','가입예정학생','행사 개인 안내',true);
+        await wait("document.getElementById('compose-result').textContent.includes('가입예정학생에게 보낼 메시지를 저장했습니다.')");
         assert.ok(!app.store.specialMissions.inbox(teacherId,0).items.some(item=>item.body==='행사 개인 안내'));
-        const registered=app.store.db.prepare('SELECT COUNT(*) n FROM players').get().n;
-        await compose('전체 등록 참여자','행사 전체 안내',true);
-        await wait(`document.getElementById('compose-result').textContent==='${registered}명에게 메시지를 전송했습니다.'`);
-        assert.ok([studentId,teacherId].every(id=>app.store.specialMissions.inbox(id,0).items.some(item=>item.body==='행사 전체 안내')));
+        await compose('all','전체 학생·선생님','행사 전체 안내',true);
+        await wait("document.getElementById('compose-result').textContent==='전체 학생·선생님에게 보낼 메시지를 저장했습니다.'");
+        const profile={grade:2,classNo:1,number:4};
+        const late=await app.store.login(profile,'1234');
+        const lateInbox=app.store.specialMissions.inbox(app.store.authenticate(late.token),0);
+        assert.deepEqual(new Set(lateInbox.items.map(item=>item.body)),new Set(['행사 개인 안내','행사 전체 안내']));
+        app.store.deleteStudent(profile);
+        await compose('teacher','가입예정교사','선생님 개인 안내',true);
+        await wait("document.getElementById('compose-result').textContent.includes('가입예정교사 선생님에게 보낼 메시지를 저장했습니다.')");
         assert.equal(await run("document.getElementById('message-content').value"),'');
       }
       await run("document.querySelector('[data-panel=\"special-panel\"]').click()");

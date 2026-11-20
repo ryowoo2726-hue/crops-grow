@@ -5,7 +5,7 @@ const gratitudeTitle = '감사의 말 전하기';
 const gratitudeDescription = '고마운 학생의 학년·반·번호 또는 선생님의 이름을 골라 감사의 말을 10글자 이상 작성해 주세요. 서로 다른 4명까지, 한 명당 성장도 25%를 받아요. 관리자가 확인한 뒤 메시지를 전달해요.';
 const missionKinds = new Set(['gratitude','custom','off',...Object.keys(commemorations)]);
 
-function createSpecialMissions(db, {now, fail, profileOf, managedPlayer}) {
+function createSpecialMissions(db, {now, fail, profileOf}) {
   const latest = () => db.prepare('SELECT * FROM special_campaigns ORDER BY id DESC LIMIT 1').get();
   function current(legacy = null) {
     const selected = latest();
@@ -147,30 +147,36 @@ function createSpecialMissions(db, {now, fail, profileOf, managedPlayer}) {
       return {id,...status(playerId,mission.id)};
     } catch (error) { db.exec('ROLLBACK'); throw error; }
   }
+  function adminRecipientKey({role,name,grade,classNo,number}) {
+    return JSON.stringify(role==='teacher' ? {role,name} : {role,grade,classNo,number});
+  }
   function recipientFilter(playerId) {
-    const player = db.prepare('SELECT role,name,grade,class_no,number FROM players WHERE id=?').get(playerId);
+    const player = db.prepare('SELECT role,name,grade,class_no classNo,number FROM players WHERE id=?').get(playerId);
+    const target=adminRecipientKey(player);
     return player.role === 'teacher'
-      ? {filter:"recipient_role='teacher' AND recipient_name=?",params:[player.name]}
-      : {filter:"recipient_role='student' AND recipient_grade=? AND recipient_class=? AND recipient_number=?",params:[player.grade,player.class_no,player.number]};
+      ? {target,filter:"recipient_role='teacher' AND recipient_name=?",params:[player.name]}
+      : {target,filter:"recipient_role='student' AND recipient_grade=? AND recipient_class=? AND recipient_number=?",params:[player.grade,player.classNo,player.number]};
   }
   function unreadCount(playerId) {
-    const {filter,params} = recipientFilter(playerId);
+    const {target,filter,params} = recipientFilter(playerId);
     return db.prepare(`SELECT
       (SELECT COUNT(*) FROM gratitude_messages WHERE ${filter} AND delivered_at<>'' AND read_at='') +
-      (SELECT COUNT(*) FROM admin_message_recipients WHERE player_id=? AND read_at='') n`).get(...params,playerId).n;
+      (SELECT COUNT(*) FROM admin_messages m WHERE m.recipient_json IN ('"all"',?) AND NOT EXISTS (
+        SELECT 1 FROM admin_message_reads r WHERE r.player_id=? AND r.message_id=m.id)) n`).get(...params,target,playerId).n;
   }
   function markRead(playerId, ids) {
     if (!Array.isArray(ids) || !ids.length || ids.length > 20 ||
         ids.some(id=>typeof id !== 'string' || !id.length || id.length > 100)) fail(400,'읽은 메시지를 확인해 주세요.');
-    const {filter,params} = recipientFilter(playerId);
+    const {target,filter,params} = recipientFilter(playerId);
     const placeholders=ids.map(()=>'?').join(',');
     const readAt=new Date(now()).toISOString();
     db.exec('BEGIN IMMEDIATE');
     try {
       db.prepare(`UPDATE gratitude_messages SET read_at=? WHERE id IN (${placeholders})
         AND ${filter} AND delivered_at<>'' AND read_at=''`).run(readAt,...ids,...params);
-      db.prepare(`UPDATE admin_message_recipients SET read_at=? WHERE message_id IN (${placeholders})
-        AND player_id=? AND read_at=''`).run(readAt,...ids,playerId);
+      db.prepare(`INSERT INTO admin_message_reads (player_id,message_id,read_at)
+        SELECT ?,id,? FROM admin_messages WHERE id IN (${placeholders}) AND recipient_json IN ('"all"',?)
+        ON CONFLICT (player_id,message_id) DO NOTHING`).run(playerId,readAt,...ids,target);
       db.exec('COMMIT');
     } catch (error) { db.exec('ROLLBACK'); throw error; }
     return {unreadCount:unreadCount(playerId)};
@@ -178,19 +184,20 @@ function createSpecialMissions(db, {now, fail, profileOf, managedPlayer}) {
   function inbox(playerId, page) {
     if (!Number.isSafeInteger(page) || page < 0 || page > 100000) fail(400,'페이지를 확인해 주세요.');
     const recipient = recipientFilter(playerId);
-    const params = recipient.params;
+    const {params,target}=recipient;
     const filter = `WHERE ${recipient.filter} AND delivered_at<>''`;
     const total = db.prepare(`SELECT (SELECT COUNT(*) FROM gratitude_messages ${filter}) +
-      (SELECT COUNT(*) FROM admin_message_recipients WHERE player_id=?) n`).get(...params,playerId).n;
+      (SELECT COUNT(*) FROM admin_messages WHERE recipient_json IN ('"all"',?)) n`).get(...params,target).n;
     const pages = Math.max(1,Math.ceil(total/20));
     page = Math.min(page,pages-1);
     // 기존 게임도 보낸 사람을 '관리자 선생님'으로 표시할 수 있는 형식입니다.
     const items = db.prepare(`SELECT id,sender_json,body,delivered_at deliveredAt,read_at readAt FROM gratitude_messages ${filter}
       UNION ALL
-      SELECT m.id,'{"role":"teacher","name":"관리자"}',m.body,m.sent_at,r.read_at
-      FROM admin_message_recipients r JOIN admin_messages m ON m.id=r.message_id WHERE r.player_id=?
+      SELECT m.id,'{"role":"teacher","name":"관리자"}',m.body,m.sent_at,COALESCE(r.read_at,'')
+      FROM admin_messages m LEFT JOIN admin_message_reads r ON r.message_id=m.id AND r.player_id=?
+      WHERE m.recipient_json IN ('"all"',?)
       ORDER BY deliveredAt DESC,id LIMIT 20 OFFSET ?`)
-      .all(...params,playerId,page*20).map(({sender_json,...row})=>({...row,sender:JSON.parse(sender_json)}));
+      .all(...params,playerId,target,page*20).map(({sender_json,...row})=>({...row,sender:JSON.parse(sender_json)}));
     return {items,page,pages,total,unreadCount:unreadCount(playerId)};
   }
   function review(statusFilter, page) {
@@ -224,28 +231,37 @@ function createSpecialMissions(db, {now, fail, profileOf, managedPlayer}) {
       fail(400,'메시지 1~600자와 요청 번호를 확인하세요.');
     const all=recipient==='all';
     if (!all && !['student','teacher'].includes(recipient?.role)) fail(400,'받는 사람을 선택하세요.');
-    const target=all ? 'all' : recipient.role==='teacher'
-      ? {role:'teacher',name:typeof recipient.name==='string' ? recipient.name.normalize('NFC').trim() : null}
-      : {role:'student',grade:recipient.grade,classNo:recipient.classNo,number:recipient.number};
-    const recipientJson=JSON.stringify(target);
+    let recipientJson='"all"';
+    if (!all && recipient.role==='teacher') {
+      const name=typeof recipient.name==='string' ? recipient.name.normalize('NFC').trim() : '';
+      if (!name || name.length>50 || /[\p{Cc}\p{Cf}]/u.test(name)) fail(400,'선생님 이름을 1~50자로 입력해 주세요.');
+      recipientJson=adminRecipientKey({role:'teacher',name});
+    }
+    if (!all && recipient.role==='student') {
+      const {grade,classNo,number}=recipient;
+      if (!Number.isInteger(grade) || grade<1 || grade>3 ||
+          ![classNo,number].every(value=>Number.isInteger(value)&&value>=1&&value<=99))
+        fail(400,'받는 학생의 학년·반·번호를 확인하세요.');
+      recipientJson=adminRecipientKey({role:'student',grade,classNo,number});
+    }
     const id='admin-'+requestId;
     db.exec('BEGIN IMMEDIATE');
     try {
-      const previous=db.prepare('SELECT recipient_json,body,recipient_count FROM admin_messages WHERE id=?').get(id);
+      const previous=db.prepare('SELECT recipient_json,body FROM admin_messages WHERE id=?').get(id);
       if (previous && (previous.body!==body || previous.recipient_json!==recipientJson))
         fail(409,'이미 전송한 요청입니다. 받는 사람이나 내용을 다시 선택하세요.');
-      let recipientCount=previous?.recipient_count;
       if (!previous) {
-        const player=all ? null : managedPlayer(target);
-        recipientCount=all ? db.prepare('SELECT COUNT(*) n FROM players').get().n : 1;
-        if (!recipientCount) fail(409,'아직 등록된 참여자가 없습니다.');
-        db.prepare('INSERT INTO admin_messages (id,recipient_json,body,sent_at,recipient_count) VALUES(?,?,?,?,?)')
-          .run(id,recipientJson,body,new Date(now()).toISOString(),recipientCount);
-        if (all) db.prepare('INSERT INTO admin_message_recipients (message_id,player_id) SELECT ?,id FROM players').run(id);
-        else db.prepare('INSERT INTO admin_message_recipients (message_id,player_id) VALUES(?,?)').run(id,player.id);
+        if (recipient?.role==='student') {
+          const {grade,classNo,number}=recipient;
+          if (!db.prepare(`SELECT 1 FROM student_roster WHERE grade=$grade AND class_no=$classNo AND number=$number
+              UNION ALL SELECT 1 FROM players WHERE grade=$grade AND class_no=$classNo AND number=$number LIMIT 1`).get({grade,classNo,number}))
+            fail(404,'학생 명단에서 받는 학생을 찾을 수 없습니다.');
+        }
+        db.prepare('INSERT INTO admin_messages (id,recipient_json,body,sent_at) VALUES(?,?,?,?)')
+          .run(id,recipientJson,body,new Date(now()).toISOString());
       }
       db.exec('COMMIT');
-      return {recipientCount};
+      return {ok:true};
     } catch (error) { db.exec('ROLLBACK'); throw error; }
   }
   return {current,activate,status,submit,inbox,review,deliver,sendAdminMessage,claimGrowth,pendingGrowth,quiz,submitQuiz,unreadCount,markRead};

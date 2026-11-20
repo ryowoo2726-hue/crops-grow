@@ -57,9 +57,12 @@ function createAdmin(store,{credentials,now,traffic}) {
       reply(200,result); return;
     }
     if (route==='/api/admin/message-recipients' && method==='GET') {
-      const recipients=store.db.prepare(`SELECT p.role,COALESCE(r.name,p.name) name,p.grade,p.class_no classNo,p.number
-        FROM players p LEFT JOIN student_roster r USING (grade,class_no,number)
-        ORDER BY p.role,p.grade,p.class_no,p.number,p.name`).all();
+      const recipients=store.db.prepare(`SELECT 'student' role,name,grade,class_no classNo,number FROM student_roster
+        UNION ALL
+        SELECT p.role,p.name,p.grade,p.class_no,p.number FROM players p
+        WHERE p.role='teacher' OR NOT EXISTS (SELECT 1 FROM student_roster r
+          WHERE r.grade=p.grade AND r.class_no=p.class_no AND r.number=p.number)
+        ORDER BY role,grade,classNo,number,name`).all();
       reply(200,{recipients}); return;
     }
     if (route==='/api/admin/compose-message' && method==='POST') {

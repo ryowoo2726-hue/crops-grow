@@ -25,7 +25,7 @@ function openStore(directory, {now = Date.now, dailyLimit = false} = {}) {
   const db = new DatabaseSync(path.join(directory, 'growgame.sqlite'));
   db.exec('PRAGMA busy_timeout=3000');
   const version = db.prepare('PRAGMA user_version').get().user_version;
-  if (version > 10) { db.close(); throw Error('이 서버보다 새로운 DB입니다. 서버를 업데이트하세요.'); }
+  if (version > 11) { db.close(); throw Error('이 서버보다 새로운 DB입니다. 서버를 업데이트하세요.'); }
   const schema = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8');
   const oldColumns = db.prepare('PRAGMA table_info(players)').all().map(column => column.name);
   if (oldColumns.length && !oldColumns.includes('role')) {
@@ -82,9 +82,18 @@ function openStore(directory, {now = Date.now, dailyLimit = false} = {}) {
   if (runColumns.length && !runColumns.some(column => column.name === 'reward_remaining')) {
     db.exec('ALTER TABLE quiz_runs ADD COLUMN reward_remaining INTEGER NOT NULL DEFAULT 0 CHECK(reward_remaining BETWEEN 0 AND 100)');
   }
+  if (db.prepare('PRAGMA table_info(admin_messages)').all().some(column=>column.name==='recipient_count')) {
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      db.exec(`ALTER TABLE admin_messages DROP COLUMN recipient_count;
+        DELETE FROM admin_message_recipients WHERE read_at='';
+        ALTER TABLE admin_message_recipients RENAME TO admin_message_reads;
+        COMMIT`);
+    } catch (error) { db.exec('ROLLBACK'); db.close(); throw error; }
+  }
   db.exec(schema);
   const quizBank = require('./quiz-bank.cjs').createQuizBank(db, {now, dayAt, fail});
-  const specialMissions = require('./special-missions.cjs').createSpecialMissions(db, {now,fail,profileOf:participantProfile,managedPlayer});
+  const specialMissions = require('./special-missions.cjs').createSpecialMissions(db, {now,fail,profileOf:participantProfile});
   db.prepare('DELETE FROM sessions WHERE expires_at < ?').run(now());
   db.prepare('DELETE FROM action_receipts WHERE created_at < ?').run(now() - 7 * 86400000);
   const getPlayer = id => db.prepare('SELECT * FROM players WHERE id=?').get(id);

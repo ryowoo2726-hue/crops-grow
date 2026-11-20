@@ -112,12 +112,13 @@ CREATE INDEX IF NOT EXISTS special_quiz_pending_growth ON special_quiz_results(p
 CREATE TABLE IF NOT EXISTS admin_messages (
   id TEXT PRIMARY KEY,
   recipient_json TEXT NOT NULL, body TEXT NOT NULL,
-  sent_at TEXT NOT NULL, recipient_count INTEGER NOT NULL CHECK(recipient_count>0)
+  sent_at TEXT NOT NULL
 ) STRICT;
-CREATE TABLE IF NOT EXISTS admin_message_recipients (
+CREATE INDEX IF NOT EXISTS admin_messages_target ON admin_messages(recipient_json,sent_at);
+CREATE TABLE IF NOT EXISTS admin_message_reads (
   player_id INTEGER NOT NULL REFERENCES players(id) ON DELETE CASCADE,
   message_id TEXT NOT NULL REFERENCES admin_messages(id),
-  read_at TEXT NOT NULL DEFAULT '',
+  read_at TEXT NOT NULL,
   PRIMARY KEY(player_id,message_id)
 ) STRICT;
-PRAGMA user_version = 10;
+PRAGMA user_version = 11;
