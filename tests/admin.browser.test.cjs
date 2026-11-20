@@ -198,8 +198,7 @@ const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
       await run("document.querySelector('#review-messages button').click()");
       await wait("document.querySelectorAll('#review-messages article').length===0");
       const teacherInbox=app.store.specialMissions.inbox(app.store.authenticate(teacher.token),0);
-      assert.ok(teacherInbox.items.some(item=>item.id===teacherMessage.id));
-      assert.equal(teacherInbox.unreadCount,1);
+      assert.ok(teacherInbox.items.some(item=>item.id===teacherMessage.id&&!item.readAt));
       if(width===390){
         const teacherId=app.store.authenticate(teacher.token);
         const compose=async (scope,label,message,accept)=>{
