@@ -201,6 +201,7 @@ const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
       assert.ok(teacherInbox.items.some(item=>item.id===teacherMessage.id&&!item.readAt));
       if(width===390){
         const teacherId=app.store.authenticate(teacher.token);
+        await wait("!document.getElementById('sent-messages-empty').hidden");
         const compose=async (scope,label,message,accept)=>{
           confirmation=null;
           await run(`{
@@ -237,6 +238,13 @@ const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
         app.store.deleteStudent(profile);
         await compose('teacher','가입예정교사','선생님 개인 안내',true);
         await wait("document.getElementById('compose-result').textContent.includes('가입예정교사 선생님에게 보낼 메시지를 저장했습니다.')");
+        await wait("document.querySelectorAll('#sent-messages article').length===3");
+        assert.deepEqual(await run("[...document.querySelectorAll('#sent-messages .message-body')].map(e=>e.textContent)"),['선생님 개인 안내','행사 전체 안내','행사 개인 안내']);
+        assert.deepEqual(await run("[...document.querySelectorAll('#sent-messages h3')].map(e=>e.textContent)"),['가입예정교사 선생님','전체 학생·선생님','2학년 1반 4번 가입예정학생']);
+        assert.equal(await run("[...document.querySelectorAll('#sent-messages time')].every(e=>!!e.dateTime)"),true);
+        await run("document.getElementById('sent-messages-title').scrollIntoView({block:'start'})");
+        const historyShot=await send('Page.captureScreenshot');
+        fs.writeFileSync(path.join(os.tmpdir(),'growgame-admin-sent-messages.png'),Buffer.from(historyShot.data,'base64'));
         assert.equal(await run("document.getElementById('message-content').value"),'');
       }
       await run("document.querySelector('[data-panel=\"special-panel\"]').click()");

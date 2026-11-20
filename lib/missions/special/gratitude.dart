@@ -327,10 +327,13 @@ class MessagesPopup extends StatefulWidget {
     required this.initialData,
     required this.load,
     this.markRead,
+    this.deleteMessage,
   });
   final Map<String, dynamic> initialData;
   final Future<Map<String, dynamic>> Function(int) load;
   final Future<void> Function(List<String>)? markRead;
+  final Future<Map<String, dynamic>> Function(String id, int page)?
+  deleteMessage;
   @override
   State<MessagesPopup> createState() => _MessagesPopupState();
 }
@@ -363,19 +366,50 @@ class _MessagesPopupState extends State<MessagesPopup> {
     }
   }
 
-  Future<void> page(int target) async {
+  Future<void> updateInbox(Future<Map<String, dynamic>> Function() load) async {
     setState(() {
       loading = true;
       error = null;
     });
     try {
-      final result = await widget.load(target);
+      final result = await load();
       if (mounted) setState(() => data = result);
     } catch (failure) {
       if (mounted) setState(() => error = failure.toString());
     } finally {
       if (mounted) setState(() => loading = false);
     }
+  }
+
+  Future<void> confirmDelete(String id) async {
+    final deleteMessage = widget.deleteMessage;
+    if (deleteMessage == null || loading || markingRead.isNotEmpty) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      useRootNavigator: false,
+      builder: (context) => AlertDialog(
+        title: const WordText('메시지를 삭제할까요?'),
+        content: const WordText('내 받은함에서 사라져요.'),
+        actions: [
+          TextButton(
+            autofocus: true,
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('취소'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: TextButton.styleFrom(
+              foregroundColor: Theme.of(context).colorScheme.error,
+            ),
+            child: const Text('삭제하기'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted || loading || markingRead.isNotEmpty) {
+      return;
+    }
+    await updateInbox(() => deleteMessage(id, data['page']));
   }
 
   @override
@@ -401,7 +435,7 @@ class _MessagesPopupState extends State<MessagesPopup> {
               tooltip: '이전 메시지',
               onPressed: loading || data['page'] == 0
                   ? null
-                  : () => page(data['page'] - 1),
+                  : () => updateInbox(() => widget.load(data['page'] - 1)),
               icon: const Icon(Icons.chevron_left),
             ),
             WordText('${data['page'] + 1} / ${data['pages']}'),
@@ -409,7 +443,7 @@ class _MessagesPopupState extends State<MessagesPopup> {
               tooltip: '다음 메시지',
               onPressed: loading || data['page'] + 1 == data['pages']
                   ? null
-                  : () => page(data['page'] + 1),
+                  : () => updateInbox(() => widget.load(data['page'] + 1)),
               icon: const Icon(Icons.chevron_right),
             ),
           ],
@@ -431,6 +465,7 @@ class _MessagesPopupState extends State<MessagesPopup> {
       ),
       child: ExpansionTile(
         key: ValueKey('message-$id'),
+        enabled: !loading,
         initiallyExpanded: expanded.contains(id),
         title: WordText(
           profileDisplayLabel(item['sender']),
@@ -460,6 +495,20 @@ class _MessagesPopupState extends State<MessagesPopup> {
               onPressed: () => markRead(id),
               icon: const Icon(Icons.refresh),
               label: const WordText('읽음 상태 다시 저장'),
+            ),
+          if (widget.deleteMessage != null)
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton.icon(
+                onPressed: loading || markingRead.isNotEmpty
+                    ? null
+                    : () => confirmDelete(id),
+                style: TextButton.styleFrom(
+                  foregroundColor: Theme.of(context).colorScheme.error,
+                ),
+                icon: const Icon(Icons.delete_outline, size: 18),
+                label: const Text('삭제'),
+              ),
             ),
         ],
       ),

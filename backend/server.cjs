@@ -88,9 +88,15 @@ function createBackend({directory,origins=['http://localhost:4174','http://127.0
         store.db.prepare('DELETE FROM sessions WHERE token_hash=?').run(require('node:crypto').createHash('sha256').update(token).digest('hex'));
         reply(200,{ok:true}); return;
       }
-      if (req.method==='GET' && url.pathname==='/api/me') { reply(200,{state:store.snapshot(playerId)}); return; }
+      if (req.method==='GET' && url.pathname==='/api/me') {
+        const mission=store.special();
+        reply(200,{state:store.snapshot(playerId),mission:mission&&{revision:mission.revision,week:mission.week}}); return;
+      }
       if (req.method==='GET' && url.pathname==='/api/messages') { reply(200,store.specialMissions.inbox(playerId,Number(url.searchParams.get('page')||0))); return; }
       if (req.method==='POST' && url.pathname==='/api/messages/read') { reply(200,store.specialMissions.markRead(playerId,input.ids)); return; }
+      if (req.method==='POST' && url.pathname==='/api/messages/delete') {
+        reply(200,store.specialMissions.deleteFromInbox(playerId,input.id,input.page ?? 0)); return;
+      }
       if (req.method==='GET' && url.pathname==='/api/special-mission') {
         reply(200,{mission:store.special(),...store.specialMissions.status(playerId),classes:store.loginOptions().classes}); return;
       }

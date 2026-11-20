@@ -28,11 +28,13 @@ checkBackend();
 const crops={'rice':'벼','sweet-potato':'고구마','soybean':'콩','radish':'무','napa-cabbage':'배추','apple':'사과','persimmon':'감','peach':'복숭아','watermelon':'수박','chili-pepper':'고추','mango':'망고'};
 let token='',students=[],selected=null,deleting=null,sessionTimer;
 let messagePage=0,messagePages=1,messageRequest=0,recipientRequest=0,composeAttempt=null,activationRequest=null;
+let sentMessagePage=0,sentMessageRequest=0;
 let messageStudents=[];
 for(let n=1;n<=12;n++) $('class-no').add(new Option(`${n}반`,String(n)));
 function signedOut(){clearTimeout(sessionTimer);token='';students=[];selected=null;deleting=null;$('students').replaceChildren();$('teachers').replaceChildren();$('review-messages').replaceChildren();$('dashboard').hidden=true;$('logout').hidden=true;$('login').hidden=false;for(const id of ['traffic-tx','traffic-rx','traffic-percent'])$(id).textContent='—';$('traffic-progress').value=0;for(const id of ['pin-dialog','delete-dialog'])if($(id).open)$(id).close();
   messageStudents=[];renderMessageStudents();$('message-teacher-names').replaceChildren();
   $('compose-message').reset();syncMessageRecipient();$('compose-message').hidden=true;$('compose-result').textContent='';composeAttempt=null;
+  $('sent-messages').replaceChildren();$('sent-messages-empty').hidden=true;$('sent-message-pages').hidden=true;
 }
 async function api(route,body){
   const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),12000);
@@ -121,7 +123,7 @@ async function refresh(){
   const session=token;
   $('refresh').disabled=true;
   try{const [data]=await Promise.all([api('students'),loadTeachers(),loadSpecial(),loadMessages(0),loadTraffic(),
-    $('messages-panel').hidden ? null : loadMessageRecipients()]);if(token!==session||!token)return;students=data.students;render();$('updated').textContent=new Date().toLocaleTimeString('ko-KR',{timeZone:'Asia/Seoul'})+' 갱신';$('message').textContent='';}
+    $('messages-panel').hidden ? null : Promise.all([loadMessageRecipients(),loadSentMessages(0)])]);if(token!==session||!token)return;students=data.students;render();$('updated').textContent=new Date().toLocaleTimeString('ko-KR',{timeZone:'Asia/Seoul'})+' 갱신';$('message').textContent='';}
   finally{$('refresh').disabled=false;}
 }
 $('login-form').onsubmit=async event=>{
@@ -135,7 +137,7 @@ for(const button of document.querySelectorAll('[data-panel]')) {
   button.onclick=()=>{
     for(const panel of document.querySelectorAll('.admin-panel')) panel.hidden=panel.id!==button.dataset.panel;
     for(const tab of document.querySelectorAll('[data-panel]')) tab.setAttribute('aria-pressed',String(tab===button));
-    if(button.dataset.panel==='messages-panel') Promise.all([loadMessages(0),loadMessageRecipients()]).catch(showError);
+    if(button.dataset.panel==='messages-panel') Promise.all([loadMessages(0),loadMessageRecipients(),loadSentMessages(0)]).catch(showError);
     if(button.dataset.panel==='special-panel') loadSpecial().catch(showError);
     if(button.dataset.panel==='teachers-panel') loadTeachers().catch(showError);
   };
@@ -228,9 +230,29 @@ $('compose-message').onsubmit=async event=>{
     event.target.reset();
     renderMessageStudents();
     status.textContent=`${label}에게 보낼 메시지를 저장했습니다.`;
+    await loadSentMessages(0).catch(showError);
   }catch(error){if(token===session)status.textContent=error.message;}
   finally{button.disabled=false;select.disabled=false;content.readOnly=false;syncMessageRecipient();}
 };
+async function loadSentMessages(page){
+  const session=token,request=++sentMessageRequest;
+  const data=await api('sent-messages',{page});
+  if(!token||token!==session||request!==sentMessageRequest)return;
+  sentMessagePage=data.page;
+  $('sent-messages').replaceChildren(...data.items.map(({recipient,body,sentAt})=>{
+    const card=document.createElement('article');card.className='review-message';
+    const title=document.createElement('h3');title.textContent=recipient==='all'?'전체 학생·선생님':participantLabel(recipient);
+    const date=document.createElement('time');date.dateTime=sentAt;date.textContent=new Date(sentAt).toLocaleString('ko-KR',{timeZone:'Asia/Seoul'});
+    const message=document.createElement('p');message.className='message-body';message.textContent=body;
+    card.append(title,date,message);
+    return card;
+  }));
+  $('sent-messages-empty').hidden=data.total>0;
+  $('sent-message-pages').hidden=data.pages===1;
+  $('sent-message-page').textContent=`${sentMessagePage+1} / ${data.pages}`;
+  $('previous-sent-messages').disabled=sentMessagePage===0;
+  $('next-sent-messages').disabled=sentMessagePage+1===data.pages;
+}
 async function loadMessages(page){
   const session=token,request=++messageRequest;
   const data=await api('messages',{status:$('message-status').value,page});
@@ -255,7 +277,9 @@ async function loadMessages(page){
   $('previous-messages').disabled=messagePage===0;$('next-messages').disabled=messagePage+1===messagePages;
 }
 $('message-status').onchange=()=>loadMessages(0).catch(showError);
-$('refresh-messages').onclick=()=>Promise.all([loadMessages(messagePage),loadMessageRecipients()]).catch(showError);
+$('refresh-messages').onclick=()=>Promise.all([loadMessages(messagePage),loadMessageRecipients(),loadSentMessages(sentMessagePage)]).catch(showError);
+$('previous-sent-messages').onclick=()=>loadSentMessages(sentMessagePage-1).catch(showError);
+$('next-sent-messages').onclick=()=>loadSentMessages(sentMessagePage+1).catch(showError);
 $('previous-messages').onclick=()=>loadMessages(messagePage-1).catch(showError);
 $('next-messages').onclick=()=>loadMessages(messagePage+1).catch(showError);
 $('refresh').onclick=()=>refresh().catch(error=>{$('message').textContent=error.message;});

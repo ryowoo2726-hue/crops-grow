@@ -121,4 +121,9 @@ CREATE TABLE IF NOT EXISTS admin_message_reads (
   read_at TEXT NOT NULL,
   PRIMARY KEY(player_id,message_id)
 ) STRICT;
-PRAGMA user_version = 11;
+CREATE TABLE IF NOT EXISTS inbox_deletions (
+  player_id INTEGER NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+  message_id TEXT NOT NULL,
+  PRIMARY KEY(player_id,message_id)
+) STRICT;
+PRAGMA user_version = 12;

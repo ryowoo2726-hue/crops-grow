@@ -321,7 +321,8 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('등록된 미션이 없어요.'), findsNothing);
       expect(find.text('퀴즈 미션'), findsOneWidget);
-      expect(find.text('특별 미션'), findsOneWidget);
+      expect(find.text('특별 미션'), findsNothing);
+      expect(find.text('새 미션'), findsNothing);
       await tester.tap(find.text('퀴즈 미션'));
       await tester.pumpAndSettle();
       expect(find.text('이번 주 퀴즈를 준비하고 있어요.'), findsOneWidget);

@@ -26,6 +26,20 @@ import 'storage_stub.dart' if (dart.library.js_interop) 'storage.dart';
 const ink = Color(0xff284b39);
 const cream = Color(0xfffff9e9);
 const green = Color(0xff5f9e59);
+const missionHighlight = Color(0xffffedc2);
+const missionOutline = Color(0xffbd7c13);
+
+Widget newSpecialMissionBadge() => Semantics(
+  label: '새 특별 미션',
+  child: const ExcludeSemantics(
+    child: Badge(
+      label: Text('새 미션'),
+      backgroundColor: Color(0xff89500b),
+      textColor: Colors.white,
+      textStyle: TextStyle(fontSize: 12, fontWeight: FontWeight.w800),
+    ),
+  ),
+);
 
 ThemeData gameTheme() => ThemeData(
   useMaterial3: true,
@@ -178,8 +192,13 @@ class _FarmGameState extends State<FarmGame>
   String? loadedCrop;
   bool galleryWarmed = false;
   Future<void>? galleryPreparation;
-  final missionData = <String, Map<String, dynamic>>{};
-  DateTime? missionsLoadedAt;
+  final activeSpecialMission = ValueNotifier<String?>(null);
+  String? viewedSpecialMission;
+  bool isNewSpecialMission(String? key) =>
+      key != null && key != viewedSpecialMission;
+  String? remoteSpecialKey(Map? mission) => mission == null
+      ? null
+      : jsonEncode([mission['week'], mission['revision']]);
   String? loginStatus;
   bool startupWarmed = false;
   bool get cropReady =>
@@ -271,6 +290,7 @@ class _FarmGameState extends State<FarmGame>
   @override
   void dispose() {
     rewardController.dispose();
+    activeSpecialMission.dispose();
     missionTimer?.cancel();
     waterTimer?.cancel();
     pin.dispose();
@@ -296,10 +316,6 @@ class _FarmGameState extends State<FarmGame>
         ? error
         : const ApiException('서버 응답을 확인하지 못했어요.', 0);
     setState(() {
-      if (apiError.status == 401 || apiError.status == 409) {
-        missionData.clear();
-        missionsLoadedAt = null;
-      }
       disconnected = apiError.status == 0 || apiError.status >= 500;
       loginError = apiError.message;
       if (apiError.status == 401 && record != null) {
@@ -309,6 +325,7 @@ class _FarmGameState extends State<FarmGame>
         busy = false;
         record = null;
         backend.token = '';
+        activeSpecialMission.value = null;
       }
     });
     if (!disconnected && record != null)
@@ -373,10 +390,18 @@ class _FarmGameState extends State<FarmGame>
     }
     refreshing = true;
     final session = backend.token;
+    final specialAtRequest = activeSpecialMission.value;
     try {
       final data = await backend.call('GET', '/api/me');
-      if (mounted && record != null && backend.token == session)
+      if (mounted && record != null && backend.token == session) {
+        if (data.containsKey('mission') &&
+            activeSpecialMission.value == specialAtRequest) {
+          activeSpecialMission.value = remoteSpecialKey(
+            data['mission'] as Map?,
+          );
+        }
         applyRemoteState(data['state']);
+      }
     } catch (error) {
       if (backend.token == session) remoteError(error);
     } finally {
@@ -472,12 +497,17 @@ class _FarmGameState extends State<FarmGame>
         setState(() {
           missions = loaded;
           missionStorageBroken = false;
+          final task = todaysMission;
+          activeSpecialMission.value = task == null
+              ? null
+              : jsonEncode([seoulDay(), task['title'], task['description']]);
         });
     } catch (_) {
       if (mounted)
         setState(() {
           missionStorageBroken = true;
           missions = {};
+          activeSpecialMission.value = null;
         });
     }
   }
@@ -768,8 +798,7 @@ class _FarmGameState extends State<FarmGame>
         busy = true;
         loginError = null;
         loginStatus = '로그인 확인 중…';
-        missionData.clear();
-        missionsLoadedAt = null;
+        viewedSpecialMission = null;
       });
       try {
         final result = await backend.call('POST', '/api/session', {
@@ -782,11 +811,9 @@ class _FarmGameState extends State<FarmGame>
         setState(() => loginStatus = '플레이 자료 준비 중…');
         await preparePlay(result['state']['cropId'] as String?);
         if (!mounted) return;
-        if (result['quiz'] is Map<String, dynamic>)
-          missionData['quiz'] = result['quiz'];
-        if (result.containsKey('mission'))
-          missionData['special'] = {'mission': result['mission']};
-        missionsLoadedAt = DateTime.now();
+        activeSpecialMission.value = remoteSpecialKey(
+          result['mission'] as Map?,
+        );
         applyRemoteState(result['state']);
         setState(() {
           tab = 0;
@@ -811,6 +838,7 @@ class _FarmGameState extends State<FarmGame>
       (e) => profileKey(e['profile']) == profileKey(loginProfile),
     );
     setState(() {
+      viewedSpecialMission = null;
       record = found.isNotEmpty ? found.first : freshRecord(loginProfile);
       if (found.isEmpty) records.add(r);
       tab = 0;
@@ -913,42 +941,24 @@ class _FarmGameState extends State<FarmGame>
 
   Future<void> mission() async {
     if (busy) return;
+    if (remote) unawaited(refreshRemote());
     final type = await popup<String>(
       '미션',
-      (context, _) => Row(
-        children: [
-          for (final item in [
-            ('quiz', '퀴즈 미션', Icons.lightbulb_outline),
-            ('special', '특별 미션', Icons.auto_awesome_outlined),
-          ])
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 4),
-                child: OutlinedButton(
-                  onPressed: () => Navigator.pop(context, item.$1),
-                  style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(
-                      vertical: 20,
-                      horizontal: 6,
-                    ),
-                  ),
-                  child: Column(
-                    children: [
-                      Icon(item.$3, size: 26),
-                      const SizedBox(height: 10),
-                      Text(
-                        item.$2,
-                        style: const TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+      (context, _) => ValueListenableBuilder(
+        valueListenable: activeSpecialMission,
+        builder: (_, key, _) => Row(
+          children: [
+            missionChoice(context, 'quiz', '퀴즈 미션', Icons.lightbulb_outline),
+            if (key != null)
+              missionChoice(
+                context,
+                'special',
+                '특별 미션',
+                Icons.auto_awesome_outlined,
+                highlight: isNewSpecialMission(key),
               ),
-            ),
-        ],
+          ],
+        ),
       ),
     );
     if (type == null || !mounted) return;
@@ -961,6 +971,9 @@ class _FarmGameState extends State<FarmGame>
     final task = todaysMission;
     final before = type == 'quiz' ? null : jsonEncode(task);
     final eligible = !busy && canGrow(r, 'mission');
+    if (type == 'special' && task != null) {
+      setState(() => viewedSpecialMission = activeSpecialMission.value);
+    }
     final complete = await popup<bool>(
       type == 'quiz' ? '퀴즈 미션' : '특별 미션',
       (_, _) => type == 'quiz'
@@ -979,6 +992,46 @@ class _FarmGameState extends State<FarmGame>
     }
     await grow('mission');
   }
+
+  Widget missionChoice(
+    BuildContext context,
+    String type,
+    String title,
+    IconData icon, {
+    bool highlight = false,
+  }) => Expanded(
+    child: Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 4),
+      child: OutlinedButton(
+        onPressed: () => Navigator.pop(context, type),
+        style: OutlinedButton.styleFrom(
+          minimumSize: const Size.fromHeight(116),
+          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 6),
+          backgroundColor: highlight ? missionHighlight : null,
+          foregroundColor: highlight ? ink : null,
+          side: highlight
+              ? const BorderSide(color: missionOutline, width: 2)
+              : null,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 26),
+            const SizedBox(height: 8),
+            Text(
+              title,
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+            ),
+            if (highlight) ...[
+              const SizedBox(height: 6),
+              newSpecialMissionBadge(),
+            ],
+          ],
+        ),
+      ),
+    ),
+  );
 
   Future<void> dailyQuiz() async {
     final session = backend.token;
@@ -1107,11 +1160,17 @@ class _FarmGameState extends State<FarmGame>
       return;
     }
     setState(() => busy = true);
+    final session = backend.token;
     Map<String, dynamic> data;
     try {
       data = await backend.call('GET', '/api/special-mission');
-      if (!mounted || record == null) return;
-      setState(() => disconnected = false);
+      if (!mounted || record == null || backend.token != session) return;
+      final key = remoteSpecialKey(data['mission'] as Map?);
+      setState(() {
+        disconnected = false;
+        activeSpecialMission.value = key;
+        viewedSpecialMission = key;
+      });
     } catch (error) {
       remoteError(error);
       return;
@@ -1354,6 +1413,17 @@ class _FarmGameState extends State<FarmGame>
             }
             setState(() => r['unreadMessageCount'] = result['unreadCount']);
           },
+          deleteMessage: (id, page) async {
+            final result = await backend.call('POST', '/api/messages/delete', {
+              'id': id,
+              'page': page,
+            });
+            if (!mounted || record == null || backend.token != session) {
+              throw const ApiException('다시 입장해 주세요.', 401);
+            }
+            setState(() => r['unreadMessageCount'] = result['unreadCount']);
+            return result;
+          },
         ),
       );
     } catch (error) {
@@ -1448,7 +1518,7 @@ class _FarmGameState extends State<FarmGame>
                       };
                       try {
                         saveMissions(updated);
-                        setState(() => missions = updated);
+                        refreshMissions();
                         update(() => feedback = '$date 미션을 저장했어요.');
                       } catch (_) {
                         update(
@@ -1474,7 +1544,7 @@ class _FarmGameState extends State<FarmGame>
                       final updated = {...missions}..remove(date);
                       try {
                         saveMissions(updated);
-                        setState(() => missions = updated);
+                        refreshMissions();
                         update(() {
                           title.clear();
                           description.clear();
@@ -1679,8 +1749,7 @@ class _FarmGameState extends State<FarmGame>
         }
         backend.token = '';
         pendingRequests.clear();
-        missionData.clear();
-        missionsLoadedAt = null;
+        activeSpecialMission.value = null;
       }
       if (!mounted) return;
       setState(() => record = null);
@@ -1909,25 +1978,34 @@ class _FarmGameState extends State<FarmGame>
     ),
   );
 
-  Widget quietButton(String label, IconData icon, VoidCallback onPressed) =>
-      TextButton.icon(
-        onPressed: busy ? null : onPressed,
-        icon: Icon(icon, size: 17),
-        label: Text(label),
-        style: TextButton.styleFrom(
-          minimumSize: const Size(88, 44),
-          padding: const EdgeInsets.symmetric(horizontal: 13),
-          backgroundColor: cream.withValues(alpha: .78),
-          foregroundColor: ink.withValues(alpha: .8),
-          textStyle: const TextStyle(
-            fontFamily: 'NotoSansKR',
-            fontSize: 12,
-            fontWeight: FontWeight.w600,
-          ),
-          side: BorderSide(color: ink.withValues(alpha: .12)),
-          shape: const StadiumBorder(),
-        ),
-      );
+  Widget missionButton(bool highlight) => TextButton.icon(
+    onPressed: busy ? null : mission,
+    icon: const Icon(Icons.task_alt, size: 17),
+    label: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const Text('미션'),
+        if (highlight) ...[const SizedBox(width: 7), newSpecialMissionBadge()],
+      ],
+    ),
+    style: TextButton.styleFrom(
+      minimumSize: const Size(88, 44),
+      padding: const EdgeInsets.symmetric(horizontal: 13),
+      backgroundColor: highlight
+          ? missionHighlight
+          : cream.withValues(alpha: .78),
+      foregroundColor: highlight ? ink : ink.withValues(alpha: .8),
+      textStyle: const TextStyle(
+        fontFamily: 'NotoSansKR',
+        fontSize: 12,
+        fontWeight: FontWeight.w600,
+      ),
+      side: highlight
+          ? const BorderSide(color: missionOutline, width: 2)
+          : BorderSide(color: ink.withValues(alpha: .12)),
+      shape: const StadiumBorder(),
+    ),
+  );
 
   Widget farm() => AnimatedBuilder(
     animation: rewardController,
@@ -2013,7 +2091,7 @@ class _FarmGameState extends State<FarmGame>
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                quietButton('미션', Icons.task_alt, mission),
+                missionButton(isNewSpecialMission(activeSpecialMission.value)),
                 MessageButton(
                   unreadCount: remote
                       ? (r['unreadMessageCount'] as int? ?? 0)

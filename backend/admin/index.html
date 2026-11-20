@@ -76,6 +76,12 @@
           <textarea id="message-content" rows="4" maxlength="600" required></textarea>
           <div class="message-toolbar"><button type="submit">메시지 보내기</button><span id="compose-result" role="status"></span></div>
         </form>
+        <section aria-labelledby="sent-messages-title">
+          <h2 id="sent-messages-title">보낸 관리자 메시지</h2>
+          <div id="sent-messages"></div>
+          <p id="sent-messages-empty" hidden>보낸 관리자 메시지가 없습니다.</p>
+          <div id="sent-message-pages" class="message-pages" hidden><button id="previous-sent-messages" class="secondary" aria-label="보낸 메시지 이전 페이지">이전</button><span id="sent-message-page">1 / 1</span><button id="next-sent-messages" class="secondary" aria-label="보낸 메시지 다음 페이지">다음</button></div>
+        </section>
         <h2>감사 편지 검토</h2>
         <p>학생이 쓴 감사 편지를 확인하고 전송하세요. 아직 참여하지 않은 선생님은 등록 안됨으로 표시됩니다.</p>
         <div class="message-toolbar"><label for="message-status">전송 상태</label><select id="message-status"><option value="pending">전송 대기</option><option value="sent">전송 완료</option><option value="all">전체</option></select></div>
