@@ -52,7 +52,18 @@
         </form>
       </div>
       <div id="messages-panel" class="admin-panel" hidden>
-        <div class="page-title"><div><h1>메시지 전송</h1><p>아래 내용을 확인한 뒤 전송을 누르세요. 받는 사람에게 전달되기 전까지 서버 DB에 보관합니다. 선생님이 아직 참여하지 않았으면 등록 안됨으로 표시됩니다.</p></div><button id="refresh-messages" class="secondary">목록 새로고침</button></div>
+        <div class="page-title"><h1>메시지 전송</h1><button id="refresh-messages" class="secondary">목록 새로고침</button></div>
+        <form id="compose-message" class="mission-card" hidden>
+          <h2>관리자 메시지 작성</h2>
+          <label for="message-recipient">받는 사람</label>
+          <select id="message-recipient" aria-describedby="message-recipient-help" required><option value="">받는 사람 선택</option></select>
+          <p id="message-recipient-help" class="notice">전체 발송은 현재 등록된 모든 학생과 선생님의 게임 메시지함에 전달됩니다.</p>
+          <label for="message-content">메시지 내용 (최대 600자)</label>
+          <textarea id="message-content" rows="4" maxlength="600" required></textarea>
+          <div class="message-toolbar"><button type="submit">메시지 보내기</button><span id="compose-result" role="status"></span></div>
+        </form>
+        <h2>감사 편지 검토</h2>
+        <p>학생이 쓴 감사 편지를 확인하고 전송하세요. 아직 참여하지 않은 선생님은 등록 안됨으로 표시됩니다.</p>
         <div class="message-toolbar"><label for="message-status">전송 상태</label><select id="message-status"><option value="pending">전송 대기</option><option value="sent">전송 완료</option><option value="all">전체</option></select></div>
         <div id="review-messages"></div>
         <p id="messages-empty" hidden>이 상태의 메시지가 없습니다.</p>

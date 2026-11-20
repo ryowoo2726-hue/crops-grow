@@ -27,9 +27,13 @@ setInterval(()=>{if(!document.hidden)checkBackend();},15000);
 checkBackend();
 const crops={'rice':'벼','sweet-potato':'고구마','soybean':'콩','radish':'무','napa-cabbage':'배추','apple':'사과','persimmon':'감','peach':'복숭아','watermelon':'수박','chili-pepper':'고추','mango':'망고'};
 let token='',students=[],selected=null,deleting=null,sessionTimer;
-let messagePage=0,messagePages=1,messageRequest=0,activationRequest=null;
+let messagePage=0,messagePages=1,messageRequest=0,recipientRequest=0,composeAttempt=null,activationRequest=null;
 for(let n=1;n<=12;n++) $('class-no').add(new Option(`${n}반`,String(n)));
-function signedOut(){clearTimeout(sessionTimer);token='';students=[];selected=null;deleting=null;$('students').replaceChildren();$('teachers').replaceChildren();$('review-messages').replaceChildren();$('dashboard').hidden=true;$('logout').hidden=true;$('login').hidden=false;for(const id of ['traffic-tx','traffic-rx','traffic-percent'])$(id).textContent='—';$('traffic-progress').value=0;for(const id of ['pin-dialog','delete-dialog'])if($(id).open)$(id).close();}
+function signedOut(){clearTimeout(sessionTimer);token='';students=[];selected=null;deleting=null;$('students').replaceChildren();$('teachers').replaceChildren();$('review-messages').replaceChildren();$('dashboard').hidden=true;$('logout').hidden=true;$('login').hidden=false;for(const id of ['traffic-tx','traffic-rx','traffic-percent'])$(id).textContent='—';$('traffic-progress').value=0;for(const id of ['pin-dialog','delete-dialog'])if($(id).open)$(id).close();
+  const recipient=$('message-recipient');
+  recipient.replaceChildren(recipient.firstElementChild);
+  $('compose-message').reset();$('compose-message').hidden=true;$('compose-result').textContent='';composeAttempt=null;
+}
 async function api(route,body){
   const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),12000);
   try{
@@ -116,7 +120,8 @@ async function loadTeachers(){
 async function refresh(){
   const session=token;
   $('refresh').disabled=true;
-  try{const [data]=await Promise.all([api('students'),loadTeachers(),loadSpecial(),loadMessages(0),loadTraffic()]);if(token!==session||!token)return;students=data.students;render();$('updated').textContent=new Date().toLocaleTimeString('ko-KR',{timeZone:'Asia/Seoul'})+' 갱신';$('message').textContent='';}
+  try{const [data]=await Promise.all([api('students'),loadTeachers(),loadSpecial(),loadMessages(0),loadTraffic(),
+    $('messages-panel').hidden ? null : loadMessageRecipients()]);if(token!==session||!token)return;students=data.students;render();$('updated').textContent=new Date().toLocaleTimeString('ko-KR',{timeZone:'Asia/Seoul'})+' 갱신';$('message').textContent='';}
   finally{$('refresh').disabled=false;}
 }
 $('login-form').onsubmit=async event=>{
@@ -130,7 +135,7 @@ for(const button of document.querySelectorAll('[data-panel]')) {
   button.onclick=()=>{
     for(const panel of document.querySelectorAll('.admin-panel')) panel.hidden=panel.id!==button.dataset.panel;
     for(const tab of document.querySelectorAll('[data-panel]')) tab.setAttribute('aria-pressed',String(tab===button));
-    if(button.dataset.panel==='messages-panel') loadMessages(0).catch(showError);
+    if(button.dataset.panel==='messages-panel') Promise.all([loadMessages(0),loadMessageRecipients()]).catch(showError);
     if(button.dataset.panel==='special-panel') loadSpecial().catch(showError);
     if(button.dataset.panel==='teachers-panel') loadTeachers().catch(showError);
   };
@@ -156,6 +161,54 @@ $('special-form').onsubmit=async event=>{
   catch(error){showError(error);}
   finally{button.disabled=false;}
 };
+async function loadMessageRecipients(){
+  const session=token,request=++recipientRequest;
+  const help=$('message-recipient-help');
+  let recipients;
+  try{({recipients}=await api('message-recipients'));}
+  catch{
+    if(token===session&&request===recipientRequest)help.textContent='받는 사람을 불러오지 못했습니다. 목록을 새로고침하세요.';
+    return;
+  }
+  if(!token||token!==session||request!==recipientRequest)return;
+  $('compose-message').hidden=false;
+  const select=$('message-recipient');
+  const value=select.value;
+  select.replaceChildren(select.firstElementChild);
+  if(recipients.length)select.add(new Option('전체 등록 참여자','all'));
+  for(const [role,label] of [['student','학생'],['teacher','선생님']]){
+    const group=document.createElement('optgroup');
+    group.label=label;
+    for(const person of recipients.filter(person=>person.role===role)){
+      const profile={...profileOf(person),role};
+      group.append(new Option(participantLabel(person),JSON.stringify(profile)));
+    }
+    if(group.children.length)select.append(group);
+  }
+  select.value=value;
+  if(select.selectedIndex<0)select.selectedIndex=0;
+  help.textContent=recipients.length ? '전체 발송은 현재 등록된 모든 학생과 선생님의 게임 메시지함에 전달됩니다.' : '등록된 참여자가 없습니다. 등록 후 목록을 새로고침하세요.';
+}
+$('compose-message').onsubmit=async event=>{
+  event.preventDefault();
+  const button=event.submitter,select=$('message-recipient'),content=$('message-content'),status=$('compose-result');
+  if(button.disabled||!select.value)return;
+  const message=content.value.trim();
+  if(!message){status.textContent='메시지 내용을 입력하세요.';content.focus();return;}
+  const recipient=select.value==='all' ? 'all' : JSON.parse(select.value);
+  if(!window.confirm(select.selectedOptions[0].textContent+'에게 메시지를 보낼까요?'))return;
+  const session=token,key=JSON.stringify([recipient,message]);
+  if(composeAttempt?.key!==key)composeAttempt={key,requestId:crypto.randomUUID()};
+  button.disabled=true;select.disabled=true;content.readOnly=true;status.textContent='전송 중…';
+  try{
+    const {recipientCount}=await api('compose-message',{recipient,message,requestId:composeAttempt.requestId});
+    if(!token||token!==session)return;
+    composeAttempt=null;
+    event.target.reset();
+    status.textContent=`${recipientCount}명에게 메시지를 전송했습니다.`;
+  }catch(error){if(token===session)status.textContent=error.message;}
+  finally{button.disabled=false;select.disabled=false;content.readOnly=false;}
+};
 async function loadMessages(page){
   const session=token,request=++messageRequest;
   const data=await api('messages',{status:$('message-status').value,page});
@@ -180,7 +233,7 @@ async function loadMessages(page){
   $('previous-messages').disabled=messagePage===0;$('next-messages').disabled=messagePage+1===messagePages;
 }
 $('message-status').onchange=()=>loadMessages(0).catch(showError);
-$('refresh-messages').onclick=()=>Promise.all([loadMessages(messagePage),loadSpecial()]).catch(showError);
+$('refresh-messages').onclick=()=>Promise.all([loadMessages(messagePage),loadMessageRecipients()]).catch(showError);
 $('previous-messages').onclick=()=>loadMessages(messagePage-1).catch(showError);
 $('next-messages').onclick=()=>loadMessages(messagePage+1).catch(showError);
 $('refresh').onclick=()=>refresh().catch(error=>{$('message').textContent=error.message;});

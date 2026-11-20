@@ -173,6 +173,8 @@ const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
       assert.equal(await run("getComputedStyle(document.querySelector('#review-messages button')).cursor"),'pointer');
       assert.equal(await run("document.getElementById('messages-panel').textContent.includes('노션')"),false);
       assert.equal(await run("document.documentElement.scrollWidth<=innerWidth"),true);
+      await wait("!document.getElementById('compose-message').hidden");
+      await run("document.getElementById('compose-message').scrollIntoView({block:'center'})");
       missionShot=await send('Page.captureScreenshot');
       fs.writeFileSync(path.join(os.tmpdir(),`growgame-admin-message-${width}.png`),Buffer.from(missionShot.data,'base64'));
       await run("document.querySelector('#review-messages button').click()");
@@ -198,6 +200,36 @@ const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
       const teacherInbox=app.store.specialMissions.inbox(app.store.authenticate(teacher.token),0);
       assert.ok(teacherInbox.items.some(item=>item.id===teacherMessage.id));
       assert.equal(teacherInbox.unreadCount,1);
+      if(width===390){
+        const studentId=app.store.authenticate(changed.token);
+        const teacherId=app.store.authenticate(teacher.token);
+        await wait("[...document.getElementById('message-recipient').options].some(o=>o.textContent.includes('가상수신자'))");
+        const compose=async (label,message,accept)=>{
+          confirmation=null;
+          await run(`{
+            const select=document.getElementById('message-recipient');
+            select.value=[...select.options].find(o=>o.textContent.includes(${JSON.stringify(label)})).value;
+            document.getElementById('message-content').value=${JSON.stringify(message)};
+          }`);
+          const click=run("document.querySelector('#compose-message button').click()");
+          for(let n=0;!confirmation&&n<100;n++)await sleep(50);
+          assert.equal(confirmation?.type,'confirm');
+          assert.ok(confirmation.message.includes(label));
+          await send('Page.handleJavaScriptDialog',{accept});
+          await click;
+        };
+        await compose('가상수신자','행사 개인 안내',false);
+        assert.equal(app.store.db.prepare('SELECT COUNT(*) n FROM admin_messages').get().n,0);
+        await compose('가상수신자','행사 개인 안내',true);
+        await wait("document.getElementById('compose-result').textContent==='1명에게 메시지를 전송했습니다.'");
+        assert.ok(app.store.specialMissions.inbox(studentId,0).items.some(item=>item.body==='행사 개인 안내'));
+        assert.ok(!app.store.specialMissions.inbox(teacherId,0).items.some(item=>item.body==='행사 개인 안내'));
+        const registered=app.store.db.prepare('SELECT COUNT(*) n FROM players').get().n;
+        await compose('전체 등록 참여자','행사 전체 안내',true);
+        await wait(`document.getElementById('compose-result').textContent==='${registered}명에게 메시지를 전송했습니다.'`);
+        assert.ok([studentId,teacherId].every(id=>app.store.specialMissions.inbox(id,0).items.some(item=>item.body==='행사 전체 안내')));
+        assert.equal(await run("document.getElementById('message-content').value"),'');
+      }
       await run("document.querySelector('[data-panel=\"special-panel\"]').click()");
       const missionTitles={patriots:'순국선열의 날',farmers:'농업인의 날','student-independence':'학생독립운동기념일'};
       for(const [kind,title] of Object.entries(missionTitles)){

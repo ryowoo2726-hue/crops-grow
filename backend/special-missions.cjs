@@ -5,7 +5,7 @@ const gratitudeTitle = '감사의 말 전하기';
 const gratitudeDescription = '고마운 학생의 학년·반·번호 또는 선생님의 이름을 골라 감사의 말을 10글자 이상 작성해 주세요. 서로 다른 4명까지, 한 명당 성장도 25%를 받아요. 관리자가 확인한 뒤 메시지를 전달해요.';
 const missionKinds = new Set(['gratitude','custom','off',...Object.keys(commemorations)]);
 
-function createSpecialMissions(db, {now, fail, profileOf}) {
+function createSpecialMissions(db, {now, fail, profileOf, managedPlayer}) {
   const latest = () => db.prepare('SELECT * FROM special_campaigns ORDER BY id DESC LIMIT 1').get();
   function current(legacy = null) {
     const selected = latest();
@@ -155,16 +155,24 @@ function createSpecialMissions(db, {now, fail, profileOf}) {
   }
   function unreadCount(playerId) {
     const {filter,params} = recipientFilter(playerId);
-    return db.prepare(`SELECT COUNT(*) n FROM gratitude_messages WHERE ${filter} AND delivered_at<>'' AND read_at=''`).get(...params).n;
+    return db.prepare(`SELECT
+      (SELECT COUNT(*) FROM gratitude_messages WHERE ${filter} AND delivered_at<>'' AND read_at='') +
+      (SELECT COUNT(*) FROM admin_message_recipients WHERE player_id=? AND read_at='') n`).get(...params,playerId).n;
   }
   function markRead(playerId, ids) {
     if (!Array.isArray(ids) || !ids.length || ids.length > 20 ||
         ids.some(id=>typeof id !== 'string' || !id.length || id.length > 100)) fail(400,'읽은 메시지를 확인해 주세요.');
     const {filter,params} = recipientFilter(playerId);
-    // 수신자의 전달 완료 메시지만 갱신하고 이미 읽은 시각은 유지합니다.
-    db.prepare(`UPDATE gratitude_messages SET read_at=? WHERE id IN (${ids.map(()=>'?').join(',')})
-      AND ${filter} AND delivered_at<>'' AND read_at=''`)
-      .run(new Date(now()).toISOString(),...ids,...params);
+    const placeholders=ids.map(()=>'?').join(',');
+    const readAt=new Date(now()).toISOString();
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      db.prepare(`UPDATE gratitude_messages SET read_at=? WHERE id IN (${placeholders})
+        AND ${filter} AND delivered_at<>'' AND read_at=''`).run(readAt,...ids,...params);
+      db.prepare(`UPDATE admin_message_recipients SET read_at=? WHERE message_id IN (${placeholders})
+        AND player_id=? AND read_at=''`).run(readAt,...ids,playerId);
+      db.exec('COMMIT');
+    } catch (error) { db.exec('ROLLBACK'); throw error; }
     return {unreadCount:unreadCount(playerId)};
   }
   function inbox(playerId, page) {
@@ -172,11 +180,17 @@ function createSpecialMissions(db, {now, fail, profileOf}) {
     const recipient = recipientFilter(playerId);
     const params = recipient.params;
     const filter = `WHERE ${recipient.filter} AND delivered_at<>''`;
-    const total = db.prepare('SELECT COUNT(*) n FROM gratitude_messages '+filter).get(...params).n;
+    const total = db.prepare(`SELECT (SELECT COUNT(*) FROM gratitude_messages ${filter}) +
+      (SELECT COUNT(*) FROM admin_message_recipients WHERE player_id=?) n`).get(...params,playerId).n;
     const pages = Math.max(1,Math.ceil(total/20));
     page = Math.min(page,pages-1);
-    const items = db.prepare('SELECT id,sender_json,body,delivered_at deliveredAt,read_at readAt FROM gratitude_messages '+filter+' ORDER BY delivered_at DESC,id LIMIT 20 OFFSET ?')
-      .all(...params,page*20).map(({sender_json,...row})=>({...row,sender:JSON.parse(sender_json)}));
+    // 기존 게임도 보낸 사람을 '관리자 선생님'으로 표시할 수 있는 형식입니다.
+    const items = db.prepare(`SELECT id,sender_json,body,delivered_at deliveredAt,read_at readAt FROM gratitude_messages ${filter}
+      UNION ALL
+      SELECT m.id,'{"role":"teacher","name":"관리자"}',m.body,m.sent_at,r.read_at
+      FROM admin_message_recipients r JOIN admin_messages m ON m.id=r.message_id WHERE r.player_id=?
+      ORDER BY deliveredAt DESC,id LIMIT 20 OFFSET ?`)
+      .all(...params,playerId,page*20).map(({sender_json,...row})=>({...row,sender:JSON.parse(sender_json)}));
     return {items,page,pages,total,unreadCount:unreadCount(playerId)};
   }
   function review(statusFilter, page) {
@@ -204,6 +218,36 @@ function createSpecialMissions(db, {now, fail, profileOf}) {
     db.prepare("UPDATE gratitude_messages SET delivered_at=? WHERE id=? AND delivered_at=''").run(new Date(now()).toISOString(),id);
     return {ok:true};
   }
-  return {current,activate,status,submit,inbox,review,deliver,claimGrowth,pendingGrowth,quiz,submitQuiz,unreadCount,markRead};
+  function sendAdminMessage({recipient,message,requestId}) {
+    const body=typeof message==='string' ? message.trim() : '';
+    if (!body || body.length>600 || typeof requestId!=='string' || !/^[a-zA-Z0-9_-]{16,90}$/.test(requestId))
+      fail(400,'메시지 1~600자와 요청 번호를 확인하세요.');
+    const all=recipient==='all';
+    if (!all && !['student','teacher'].includes(recipient?.role)) fail(400,'받는 사람을 선택하세요.');
+    const target=all ? 'all' : recipient.role==='teacher'
+      ? {role:'teacher',name:typeof recipient.name==='string' ? recipient.name.normalize('NFC').trim() : null}
+      : {role:'student',grade:recipient.grade,classNo:recipient.classNo,number:recipient.number};
+    const recipientJson=JSON.stringify(target);
+    const id='admin-'+requestId;
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      const previous=db.prepare('SELECT recipient_json,body,recipient_count FROM admin_messages WHERE id=?').get(id);
+      if (previous && (previous.body!==body || previous.recipient_json!==recipientJson))
+        fail(409,'이미 전송한 요청입니다. 받는 사람이나 내용을 다시 선택하세요.');
+      let recipientCount=previous?.recipient_count;
+      if (!previous) {
+        const player=all ? null : managedPlayer(target);
+        recipientCount=all ? db.prepare('SELECT COUNT(*) n FROM players').get().n : 1;
+        if (!recipientCount) fail(409,'아직 등록된 참여자가 없습니다.');
+        db.prepare('INSERT INTO admin_messages (id,recipient_json,body,sent_at,recipient_count) VALUES(?,?,?,?,?)')
+          .run(id,recipientJson,body,new Date(now()).toISOString(),recipientCount);
+        if (all) db.prepare('INSERT INTO admin_message_recipients (message_id,player_id) SELECT ?,id FROM players').run(id);
+        else db.prepare('INSERT INTO admin_message_recipients (message_id,player_id) VALUES(?,?)').run(id,player.id);
+      }
+      db.exec('COMMIT');
+      return {recipientCount};
+    } catch (error) { db.exec('ROLLBACK'); throw error; }
+  }
+  return {current,activate,status,submit,inbox,review,deliver,sendAdminMessage,claimGrowth,pendingGrowth,quiz,submitQuiz,unreadCount,markRead};
 }
 module.exports = {createSpecialMissions};

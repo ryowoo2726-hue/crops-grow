@@ -109,4 +109,15 @@ CREATE TABLE IF NOT EXISTS special_quiz_results (
   PRIMARY KEY(campaign_id,player_id)
 ) STRICT;
 CREATE INDEX IF NOT EXISTS special_quiz_pending_growth ON special_quiz_results(player_id) WHERE reward_remaining>0;
-PRAGMA user_version = 9;
+CREATE TABLE IF NOT EXISTS admin_messages (
+  id TEXT PRIMARY KEY,
+  recipient_json TEXT NOT NULL, body TEXT NOT NULL,
+  sent_at TEXT NOT NULL, recipient_count INTEGER NOT NULL CHECK(recipient_count>0)
+) STRICT;
+CREATE TABLE IF NOT EXISTS admin_message_recipients (
+  player_id INTEGER NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+  message_id TEXT NOT NULL REFERENCES admin_messages(id),
+  read_at TEXT NOT NULL DEFAULT '',
+  PRIMARY KEY(player_id,message_id)
+) STRICT;
+PRAGMA user_version = 10;

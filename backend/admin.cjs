@@ -56,6 +56,15 @@ function createAdmin(store,{credentials,now,traffic}) {
       const result=store.specialMissions.deliver(input.id);
       reply(200,result); return;
     }
+    if (route==='/api/admin/message-recipients' && method==='GET') {
+      const recipients=store.db.prepare(`SELECT p.role,COALESCE(r.name,p.name) name,p.grade,p.class_no classNo,p.number
+        FROM players p LEFT JOIN student_roster r USING (grade,class_no,number)
+        ORDER BY p.role,p.grade,p.class_no,p.number,p.name`).all();
+      reply(200,{recipients}); return;
+    }
+    if (route==='/api/admin/compose-message' && method==='POST') {
+      reply(200,store.specialMissions.sendAdminMessage(input)); return;
+    }
     if (route==='/api/admin/logout' && method==='POST') { sessions.delete(tokenHash(token)); reply(200,{ok:true}); return; }
     if (route==='/api/admin/students' && method==='GET') {
       const students=store.db.prepare(`SELECT p.grade,p.class_no classNo,p.number,p.crop_id cropId,p.progress,

@@ -4,6 +4,8 @@
 
 관리자 주소는 `https://cropgrow.sangsangbar.com/admin/`입니다. 기존 관리자 비밀번호로 로그인하며 학생/교사 기록·PIN 변경·삭제·특별미션·메시지 전송 기능을 유지합니다. 화면은 Cloudflare 정적 파일로 제공하고 관리자 API는 Oracle에 직접 요청합니다. 백엔드가 중단되어도 관리자 페이지를 열 수 있으며 15초 간격의 연결 배지와 다시 확인 버튼으로 상태를 확인합니다. 응답 없음은 서버 또는 네트워크 문제를 뜻합니다.
 
+**메시지 전송 → 관리자 메시지 작성**에서 전체 등록 참여자 또는 한 학생·선생님을 선택한 뒤 본문을 입력하고 발송을 확인합니다. 전체 발송은 전송 시점에 게임에 등록된 학생과 선생님에게 전달됩니다. 받는 사람은 기존 게임 메시지함에서 확인하고, 읽음은 계정별로 SQLite에 저장됩니다. 같은 화면의 **감사 편지 검토**에서 학생이 작성한 편지도 전달할 수 있습니다.
+
 로그인하면 서버 트래픽 카드에서 현재 UTC 월의 송신·수신량과 10TB 무료 외부 전송 기준 대비 비율을 봅니다. 네트워크 인터페이스 기준의 참고 수치로 내부 통신 등을 포함하여 Oracle 청구량과 다를 수 있습니다. 집계는 `/var/lib/growgame/server-traffic.json`에 저장하고 재시작·재부팅을 이어 계산합니다. 집계를 처음 시작한 달의 이전 데이터가 없으면 수집 이후 사용량만 표시합니다. 정확한 청구량은 Oracle 콘솔에서 확인합니다.
 
 백엔드 종료 시 3초 뒤 자동 재시작하고, `growgame-healthcheck.timer`가 매분 DB 확인을 포함한 로컬 health를 점검합니다. curl 재시도까지 실패하면 `growgame-recover.service`가 백엔드를 재시작합니다. VM 자체 강제 재부팅이나 Oracle의 VM 회수 복구를 보장하는 구성은 아닙니다. 유지보수 중 의도적으로 끄려면 `sudo systemctl stop growgame-healthcheck.timer growgame`을 실행하고, 다시 켤 때는 `sudo systemctl start growgame growgame-healthcheck.timer`를 사용합니다.
