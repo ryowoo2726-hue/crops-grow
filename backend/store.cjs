@@ -11,6 +11,7 @@ const dayAt = time => new Date(time + 9 * 3600000).toISOString().slice(0, 10);
 const hourMs = 3600000, dayMs = 24 * hourMs;
 // 오전 8시(한국 시간)는 전날 UTC 23시입니다.
 const nextWaterReset = time => (Math.floor((time + hourMs) / dayMs) + 1) * dayMs - hourMs;
+const quizDayAt = time => new Date(time + hourMs).toISOString().slice(0, 10);
 function weekAt(time) {
   const date = new Date(dayAt(time) + 'T00:00:00Z');
   date.setUTCDate(date.getUTCDate() - (date.getUTCDay() + 6) % 7);
@@ -25,7 +26,7 @@ function openStore(directory, {now = Date.now, dailyLimit = false} = {}) {
   const db = new DatabaseSync(path.join(directory, 'growgame.sqlite'));
   db.exec('PRAGMA busy_timeout=3000');
   const version = db.prepare('PRAGMA user_version').get().user_version;
-  if (version > 12) { db.close(); throw Error('이 서버보다 새로운 DB입니다. 서버를 업데이트하세요.'); }
+  if (version > 13) { db.close(); throw Error('이 서버보다 새로운 DB입니다. 서버를 업데이트하세요.'); }
   const schema = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8');
   const oldColumns = db.prepare('PRAGMA table_info(players)').all().map(column => column.name);
   if (oldColumns.length && !oldColumns.includes('role')) {
@@ -92,7 +93,23 @@ function openStore(directory, {now = Date.now, dailyLimit = false} = {}) {
     } catch (error) { db.exec('ROLLBACK'); db.close(); throw error; }
   }
   db.exec(schema);
-  const quizBank = require('./quiz-bank.cjs').createQuizBank(db, {now, dayAt, fail});
+  if (version < 13) {
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      // 지워지지 않은 기존 직접 작성 미션의 완료 기록을 이어받습니다.
+      db.exec(`INSERT OR IGNORE INTO special_completions(player_id,mission_key)
+        SELECT a.player_id,'campaign:'||c.id FROM action_receipts a
+        JOIN special_campaigns c ON c.id=json_extract(a.fingerprint,'$[3]')
+        WHERE json_extract(a.fingerprint,'$[0]')='special' AND c.kind='custom';
+        INSERT OR IGNORE INTO special_completions(player_id,mission_key)
+        SELECT a.player_id,'legacy:'||s.week||':'||s.revision FROM action_receipts a
+        JOIN special_missions s ON s.week=date(a.created_at/1000,'unixepoch','+9 hours','-6 days','weekday 1')
+          AND s.revision=json_extract(a.fingerprint,'$[2]')
+        WHERE json_extract(a.fingerprint,'$[0]')='special' AND json_extract(a.fingerprint,'$[3]') IS NULL;
+        PRAGMA user_version=13; COMMIT`);
+    } catch (error) { db.exec('ROLLBACK'); db.close(); throw error; }
+  }
+  const quizBank = require('./quiz-bank.cjs').createQuizBank(db, {now, dayAt:quizDayAt, fail});
   const specialMissions = require('./special-missions.cjs').createSpecialMissions(db, {now,fail,profileOf:participantProfile});
   db.prepare('DELETE FROM sessions WHERE expires_at < ?').run(now());
   db.prepare('DELETE FROM action_receipts WHERE created_at < ?').run(now() - 7 * 86400000);
@@ -277,7 +294,10 @@ function openStore(directory, {now = Date.now, dailyLimit = false} = {}) {
     if (correct) db.prepare('INSERT OR IGNORE INTO quiz_answers VALUES(?,?,?,?)').run(playerId,current.week,current.revision,q.id);
     return {correct,explanation:correct?q.explanation:''};
   }
-  const special = () => specialMissions.current(db.prepare('SELECT week,title,description,revision FROM special_missions WHERE week=?').get(weekAt(now())) || null);
+  const special = () => specialMissions.current(db.prepare('SELECT week,title,description,revision FROM special_missions ORDER BY rowid DESC LIMIT 1').get() || null);
+  const specialCompletionKey = mission => mission.id != null ? `campaign:${mission.id}` : `legacy:${mission.week}:${mission.revision}`;
+  const specialCompleted = (playerId, mission) => !!mission && !mission.poster && mission.kind!=='gratitude' &&
+    !!db.prepare('SELECT 1 FROM special_completions WHERE player_id=? AND mission_key=?').get(playerId,specialCompletionKey(mission));
   function action(playerId, input) {
     if (typeof input.requestId !== 'string' || !/^[a-zA-Z0-9_-]{16,100}$/.test(input.requestId)) fail(400,'요청 번호가 올바르지 않아요.');
     const fingerprint = JSON.stringify([input.kind,input.cropId??null,input.missionRevision??null,...(input.kind==='quiz-set'?[input.runId]:[]),...(input.missionId==null?[]:[input.missionId])]);
@@ -311,10 +331,9 @@ function openStore(directory, {now = Date.now, dailyLimit = false} = {}) {
         if (!['water','quiz','special'].includes(input.kind)) fail(400,'올바른 행동을 선택해 주세요.');
         if (!p.crop_id || p.progress>=100) fail(409,'현재는 성장시킬 수 없어요.');
         const water = input.kind==='water';
-        const field = water?'water_day':'mission_day';
         if (water && waterCooldown(p,time)>0) fail(409,'이미 물을 줬어요. 오전 8시에 다시 줄 수 있어요.');
-        if (!water && dailyLimit && p.mission_day===day) fail(409,'오늘 보상은 이미 받았어요.');
         if (input.kind==='quiz') {
+          if (dailyLimit && p.mission_day===day) fail(409,'오늘 보상은 이미 받았어요.');
           if (db.prepare('SELECT 1 FROM quiz_sets LIMIT 1').get()) fail(409,'과목별 퀴즈를 다시 열어 주세요.');
           const q = quiz();
           const solved = db.prepare('SELECT COUNT(*) count FROM quiz_answers WHERE player_id=? AND week=? AND revision=?').get(playerId,q.week,q.revision).count;
@@ -326,9 +345,15 @@ function openStore(directory, {now = Date.now, dailyLimit = false} = {}) {
           if (mission.id != null && mission.id !== input.missionId) fail(409,'특별 미션이 변경되었어요. 다시 확인해 주세요.');
           if (mission.kind==='gratitude') fail(409,'감사의 말을 작성해 미션에 참여해 주세요.');
           if (mission.poster) fail(409,'포스터를 읽고 특별 퀴즈에 참여해 주세요.');
+          const completed = db.prepare('INSERT OR IGNORE INTO special_completions(player_id,mission_key) VALUES(?,?)')
+            .run(playerId,specialCompletionKey(mission));
+          if (!completed.changes) fail(409,'이번 특별 미션은 이미 완료했어요.');
+          db.prepare('UPDATE players SET progress=MIN(100,progress+30),revision=revision+1 WHERE id=?').run(playerId);
+        } else {
+          const field = water?'water_day':'mission_day';
+          db.prepare(`UPDATE players SET progress=MIN(100,progress+?),${field}=?,revision=revision+1 WHERE id=?`)
+            .run(water?50:30,water?new Date(time).toISOString():day,playerId);
         }
-        db.prepare(`UPDATE players SET progress=MIN(100,progress+?),${field}=?,revision=revision+1 WHERE id=?`)
-          .run(water?50:30,water?new Date(time).toISOString():day,playerId);
       }
       db.prepare('INSERT INTO action_receipts VALUES(?,?,?,?,?)').run(playerId,input.requestId,fingerprint,JSON.stringify(outcome),time);
       db.exec('COMMIT'); return {state:snapshot(playerId),...outcome};
@@ -394,8 +419,10 @@ function openStore(directory, {now = Date.now, dailyLimit = false} = {}) {
   }
   function importSpecial(input) {
     if (!input || !validWeek(input.week) || typeof input.title!=='string' || !input.title.trim() || input.title.length>60 || typeof input.description!=='string' || !input.description.trim() || input.description.length>600) fail(400,'특별 미션의 월요일 날짜, 제목과 내용을 확인하세요.');
-    db.prepare('INSERT INTO special_missions(week,title,description) VALUES(?,?,?) ON CONFLICT(week) DO UPDATE SET title=excluded.title,description=excluded.description,revision=revision+1').run(input.week,input.title.trim(),input.description.trim());
+    db.prepare(`INSERT OR REPLACE INTO special_missions(week,title,description,revision)
+      VALUES(?,?,?,COALESCE((SELECT MAX(revision)+1 FROM special_missions),1))`)
+      .run(input.week,input.title.trim(),input.description.trim());
   }
-  return {db,login,resetPin,resetWater,deleteStudent,deleteTeacher,authenticate,snapshot,quiz,checkAnswer,special,action,garden,rankings,importQuiz,importSpecial,quizBank,importRoster,loginOptions,specialMissions};
+  return {db,login,resetPin,resetWater,deleteStudent,deleteTeacher,authenticate,snapshot,quiz,checkAnswer,special,specialCompleted,action,garden,rankings,importQuiz,importSpecial,quizBank,importRoster,loginOptions,specialMissions};
 }
 module.exports = {openStore,ApiError,dayAt,weekAt};

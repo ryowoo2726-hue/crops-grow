@@ -877,6 +877,9 @@ class _FarmGameState extends State<FarmGame>
     return true;
   }
 
+  bool get canCompleteRemoteSpecial =>
+      cropReady && r['cropId'] != null && (r['progress'] as num) < 100;
+
   Future<void> grow(
     String kind, {
     String? missionType,
@@ -886,8 +889,10 @@ class _FarmGameState extends State<FarmGame>
   }) async {
     if (busy ||
         (quizRunId == null &&
-            (!cropReady ||
-                !canGrow(r, kind, waterRemainingMs: waterRemainingMs)))) {
+            !(remote && missionType == 'special'
+                ? canCompleteRemoteSpecial
+                : cropReady &&
+                      canGrow(r, kind, waterRemainingMs: waterRemainingMs)))) {
       return;
     }
     final before = (r['progress'] as num).toDouble();
@@ -1053,6 +1058,11 @@ class _FarmGameState extends State<FarmGame>
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           if (subjects.isEmpty) const Text('과목별 퀴즈를 준비하고 있어요.'),
+          if (subjects.isNotEmpty)
+            const Padding(
+              padding: EdgeInsets.only(bottom: 12),
+              child: WordText('새 퀴즈는 오전 8시에 열려요.'),
+            ),
           for (final item in subjects)
             Padding(
               padding: const EdgeInsets.only(bottom: 12),
@@ -1185,7 +1195,7 @@ class _FarmGameState extends State<FarmGame>
       await commemorativeMission(Map<String, dynamic>.from(data['mission']));
       return;
     }
-    final eligible = cropReady && canGrow(r, 'mission');
+    final eligible = canCompleteRemoteSpecial;
     final mission = data['mission'] is Map
         ? Map<String, String>.from(
             (data['mission'] as Map).map(
@@ -1196,7 +1206,11 @@ class _FarmGameState extends State<FarmGame>
     final revision = (data['mission'] as Map?)?['revision'] as int?;
     final complete = await popup<bool>(
       '특별 미션',
-      (_, _) => SpecialMissionPopup(mission: mission, canComplete: eligible),
+      (_, _) => SpecialMissionPopup(
+        mission: mission,
+        canComplete: eligible,
+        completed: data['completed'] == true,
+      ),
     );
     if (complete == true && mounted && record != null)
       await grow(

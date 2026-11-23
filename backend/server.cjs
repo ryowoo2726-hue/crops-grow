@@ -98,7 +98,8 @@ function createBackend({directory,origins=['http://localhost:4174','http://127.0
         reply(200,store.specialMissions.deleteFromInbox(playerId,input.id,input.page ?? 0)); return;
       }
       if (req.method==='GET' && url.pathname==='/api/special-mission') {
-        reply(200,{mission:store.special(),...store.specialMissions.status(playerId),classes:store.loginOptions().classes}); return;
+        const mission = store.special();
+        reply(200,{mission,completed:store.specialCompleted(playerId,mission),...store.specialMissions.status(playerId,mission?.id),classes:store.loginOptions().classes}); return;
       }
       if (req.method==='GET' && url.pathname==='/api/special-quiz') {
         reply(200,store.specialMissions.quiz(playerId,Number(url.searchParams.get('missionId')))); return;

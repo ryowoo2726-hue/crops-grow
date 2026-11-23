@@ -56,14 +56,14 @@ function createQuizBank(db, {now, dayAt, fail}) {
 
   function availableSets(playerId, subject) {
     const history = db.prepare(`SELECT questions_json FROM quiz_runs
-      WHERE player_id=? AND subject=? AND result_json IS NOT NULL`).all(playerId, subject);
+      WHERE player_id=? AND subject=?`).all(playerId, subject);
     const columns = history.length ? 's.id,s.questions_json' : 's.id';
     const candidates = db.prepare(`SELECT ${columns} FROM quiz_sets s WHERE subject=? AND active=1
-      AND NOT EXISTS(SELECT 1 FROM quiz_runs r WHERE r.player_id=? AND r.set_id=s.id AND r.result_json IS NOT NULL)
+      AND NOT EXISTS(SELECT 1 FROM quiz_runs r WHERE r.player_id=? AND r.set_id=s.id)
       ORDER BY s.id`).all(subject, playerId);
     if (!history.length || !candidates.length) return candidates;
-    const completedQuestions = new Set(history.flatMap(row => JSON.parse(row.questions_json).map(questionKey)));
-    return candidates.filter(set => JSON.parse(set.questions_json).every(q => !completedQuestions.has(questionKey(q))));
+    const assignedQuestions = new Set(history.flatMap(row => JSON.parse(row.questions_json).map(questionKey)));
+    return candidates.filter(set => JSON.parse(set.questions_json).every(q => !assignedQuestions.has(questionKey(q))));
   }
 
   const currentRunFilter = `FROM quiz_runs WHERE player_id=? AND subject=? AND
@@ -93,7 +93,7 @@ function createQuizBank(db, {now, dayAt, fail}) {
     if (!input || typeof input.subject !== 'string' || input.subject.length > 40) fail(400, '과목을 선택하세요.');
     db.exec('BEGIN IMMEDIATE');
     try {
-      // An unclaimed result survives midnight and can be collected after reconnecting.
+      // An unclaimed result survives the morning reset and can be collected after reconnecting.
       const day = dayAt(now());
       let run = db.prepare(`SELECT * ${currentRunFilter}`).get(playerId, input.subject, day);
       if (!run) {
@@ -122,7 +122,7 @@ function createQuizBank(db, {now, dayAt, fail}) {
       const run = db.prepare('SELECT * FROM quiz_runs WHERE id=? AND player_id=?').get(input.runId, playerId);
       if (!run) fail(404, '퀴즈 기록을 찾을 수 없어요.');
       if (!run.result_json) {
-        if (run.day !== dayAt(now())) fail(409, '날짜가 바뀌었어요. 오늘의 문제를 다시 열어 주세요.');
+        if (run.day !== dayAt(now())) fail(409, '오전 8시가 지나 새 문제가 열렸어요. 퀴즈 목록을 다시 열어 주세요.');
         let result;
         if (clientGraded) {
           // shortcut: client scores can be forged, submit answers if trusted scoring is needed.

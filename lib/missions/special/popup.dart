@@ -7,9 +7,11 @@ class SpecialMissionPopup extends StatefulWidget {
     super.key,
     required this.mission,
     required this.canComplete,
+    this.completed = false,
   });
   final Map<String, String>? mission;
   final bool canComplete;
+  final bool completed;
   @override
   State<SpecialMissionPopup> createState() => _SpecialMissionPopupState();
 }
@@ -34,31 +36,35 @@ class _SpecialMissionPopupState extends State<SpecialMissionPopup> {
         const SizedBox(height: 16),
         WordText(mission['description']!, textAlign: TextAlign.center),
         const SizedBox(height: 18),
-        CheckboxListTile(
-          contentPadding: EdgeInsets.zero,
-          title: const WordText('미션을 완료했어요'),
-          value: checked,
-          onChanged: widget.canComplete
-              ? (value) => setState(() => checked = value ?? false)
-              : null,
-        ),
-        SizedBox(
-          width: double.infinity,
-          child: FilledButton(
-            onPressed: checked && widget.canComplete
-                ? () => Navigator.pop(context, true)
+        if (widget.completed)
+          const WordText('이번 특별 미션을 완료했어요.', textAlign: TextAlign.center)
+        else ...[
+          CheckboxListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const WordText('미션을 완료했어요'),
+            value: checked,
+            onChanged: widget.canComplete
+                ? (value) => setState(() => checked = value ?? false)
                 : null,
-            child: const WordText('완료하기'),
           ),
-        ),
-        if (!widget.canComplete)
-          const Padding(
-            padding: EdgeInsets.only(top: 10),
-            child: WordText(
-              '지금은 성장 보상을 받을 수 없어요.',
-              style: TextStyle(fontSize: 12),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton(
+              onPressed: checked && widget.canComplete
+                  ? () => Navigator.pop(context, true)
+                  : null,
+              child: const WordText('완료하기'),
             ),
           ),
+          if (!widget.canComplete)
+            const Padding(
+              padding: EdgeInsets.only(top: 10),
+              child: WordText(
+                '지금은 성장 보상을 받을 수 없어요.',
+                style: TextStyle(fontSize: 12),
+              ),
+            ),
+        ],
       ],
     );
   }
