@@ -121,7 +121,7 @@ flutter analyze
 flutter test
 ```
 
-실제 Chrome 통합 검증은 로컬 API 주소로 빌드하고 프론트 서버를 켠 뒤 `node tests/flutter.browser.test.cjs`로 실행합니다. 검증용 임시 DB를 만들고 API를 직접 시작·종료합니다. 가동 서버가 있으면 다른 포트로 빌드하고 `GROWGAME_TEST_API_PORT`를 지정해 분리하세요. PIN 등록·기기 채점·요약 제출·보상·수확·도감·서버 중단/복구·모바일/태블릿/PC를 확인합니다.
+실제 Chrome 통합 검증은 로컬 API 주소로 빌드하고 프론트 서버를 켠 뒤 `node tests/flutter.browser.test.cjs`로 실행합니다. 검증용 임시 DB를 만들고 API를 직접 시작·종료합니다. 가동 서버가 있으면 다른 포트로 빌드하고 `GROWGAME_TEST_API_PORT`를 지정해 분리하세요. PIN 등록·상품 팝업·기기 채점·요약 제출·보상·수확·도감·서버 중단/복구·모바일/태블릿/PC를 확인합니다.
 
 이 작업 환경의 SDK는 `C:\tmp\growgame-flutter-sdk`입니다. PATH에 없으면 `flutter` 대신 `& 'C:\tmp\growgame-flutter-sdk\bin\flutter.bat'`을 사용합니다. 한글 경로에서 분석 서버 오류가 나면 비어 있는 영문 드라이브 별칭을 만들어 사용합니다.
 

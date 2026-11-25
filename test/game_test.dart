@@ -1,4 +1,5 @@
 import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:growgame/game.dart';
@@ -275,7 +276,7 @@ void main() {
     expect(stageSize(const Size(375, 667)).height, 694);
   });
 
-  testWidgets('모든 화면 크기에서 입장, 미션, 수확, 도감, 정원 동작', (tester) async {
+  testWidgets('모든 화면 크기에서 입장, 상품, 미션, 수확, 도감, 정원 동작', (tester) async {
     for (final size in [
       const Size(320, 568),
       const Size(390, 844),
@@ -316,6 +317,25 @@ void main() {
       expect(sizes.toSet().length, 1);
       await tester.tap(find.text('시작하기'));
       await tester.pumpAndSettle();
+      final prizeButton = find.text('상품');
+      expect(
+        tester.getTopLeft(prizeButton).dy,
+        greaterThan(tester.getBottomLeft(find.text('메시지')).dy),
+      );
+      await tester.tap(prizeButton);
+      await tester.pumpAndSettle();
+      expect(find.text('작물키우기'), findsOneWidget);
+      expect(find.text('11월 30일 점심시간'), findsOneWidget);
+      expect(find.text('중앙현관'), findsOneWidget);
+      for (final label in ['×5', '뻥튀기', '×10', '젤리', '×15', '빼빼로']) {
+        expect(find.text(label), findsOneWidget);
+      }
+      await tester.ensureVisible(find.text('빼빼로'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('내 밭으로'));
+      await tester.pumpAndSettle();
+      expect(find.text('11월 30일 점심시간'), findsNothing);
+      expect(tester.takeException(), isNull);
       expect(find.text('등록된 미션이 없어요.'), findsNothing);
       await tester.tap(find.text('미션'));
       await tester.pumpAndSettle();

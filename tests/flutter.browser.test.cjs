@@ -159,6 +159,28 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     await send('Fetch.disable');
     assert.equal(new Set([...cropImages.values()].filter(image=>image.complete).map(image=>image.url)).size,4,'입장 전에 현재 작물의 네 성장 이미지 준비');
     assert.ok([...harvestImages.values()].some(image=>image.complete),'입장 전에 수확 이미지 준비');
+    for (const [width,height] of [[320,568],[1920,1080],[390,844]]) {
+      await send('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:width<600});
+      await sleep(350);
+      assert.ok(await run(`(() => {
+        const bounds = label => Array.from(document.querySelectorAll('flt-semantics[role=button]'))
+          .find(e => (e.getAttribute('aria-label') || e.textContent).trim() === label)?.getBoundingClientRect();
+        const message = bounds('메시지'), prize = bounds('상품');
+        return !!(message && prize && prize.top >= message.bottom - 1 && Math.abs(message.right - prize.right) <= 2);
+      })()`),'메시지 바로 아래에 상품 버튼 표시');
+      await clickText('상품');
+      await wait(hasSemanticsText('11월 30일 점심시간'));
+      await wait(hasSemanticsText('중앙현관'));
+      const prizeShot = await send('Page.captureScreenshot');
+      fs.writeFileSync(path.join(os.tmpdir(),`growgame-event-prizes-${width}.png`),Buffer.from(prizeShot.data,'base64'));
+      if (width===320) {
+        await send('Input.dispatchMouseEvent',{type:'mouseWheel',x:width/2,y:height/2,deltaX:0,deltaY:420});
+      }
+      await wait(hasSemanticsText('빼빼로'));
+      await clickText('내 밭으로');
+      await wait(`!(${hasSemanticsText('11월 30일 점심시간')})`);
+    }
+    console.log('Flutter Chrome 상품 팝업 통과: 320·390·1920px');
     const newMissionBadge=hasSemanticsText('새 특별 미션');
     await wait(newMissionBadge);
     const farmShot = await send('Page.captureScreenshot');

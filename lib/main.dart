@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'backend/api.dart';
 import 'crops/crop_growth.dart';
 import 'crops/reward_effect.dart';
+import 'event_prizes.dart';
 import 'game.dart';
 import 'font_assets.dart';
 import 'image_assets.dart';
@@ -2113,6 +2114,11 @@ class _FarmGameState extends State<FarmGame>
                   onPressed: busy ? null : showMessages,
                 ),
               ],
+            ),
+            const SizedBox(height: 4),
+            Align(
+              alignment: Alignment.centerRight,
+              child: EventPrizeButton(enabled: !busy),
             ),
             Expanded(
               child: LayoutBuilder(
