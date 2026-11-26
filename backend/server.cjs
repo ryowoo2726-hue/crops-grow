@@ -65,9 +65,10 @@ function createBackend({directory,origins=['http://localhost:4174','http://127.0
       let input;
       if (req.method==='POST') {
         if (!(req.headers['content-type']||'').startsWith('application/json')) throw new ApiError(415,'JSON 요청이 필요합니다.');
+        const limit = ['/api/admin/send-message','/api/admin/send-messages'].includes(url.pathname) ? 128*1024 : 4096;
         const chunks=[]; let bytes=0;
-        for await (const chunk of req) { bytes+=chunk.length; if(bytes<=4096) chunks.push(chunk); }
-        if(bytes>4096) throw new ApiError(413,'요청 내용이 너무 큽니다.');
+        for await (const chunk of req) { bytes+=chunk.length; if(bytes<=limit) chunks.push(chunk); }
+        if(bytes>limit) throw new ApiError(413,'요청 내용이 너무 큽니다.');
         try { input=JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { throw new ApiError(400,'요청 형식을 확인해 주세요.'); }
         if (!input || Array.isArray(input) || typeof input!=='object') throw new ApiError(400,'요청 형식을 확인해 주세요.');
       }

@@ -53,8 +53,11 @@ function createAdmin(store,{credentials,now,traffic}) {
       reply(200,store.specialMissions.review(input.status ?? 'pending',input.page ?? 0)); return;
     }
     if (route==='/api/admin/send-message' && method==='POST') {
-      const result=store.specialMissions.deliver(input.id);
+      const result=store.specialMissions.deliver(input.id,input.teacherName,input.teacherNames);
       reply(200,result); return;
+    }
+    if (route==='/api/admin/send-messages' && method==='POST') {
+      reply(200,store.specialMissions.deliverBatch(input.messages)); return;
     }
     if (route==='/api/admin/message-recipients' && method==='GET') {
       const recipients=store.db.prepare(`SELECT 'student' role,name,grade,class_no classNo,number FROM student_roster

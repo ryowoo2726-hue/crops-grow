@@ -26,7 +26,7 @@ function openStore(directory, {now = Date.now, dailyLimit = false} = {}) {
   const db = new DatabaseSync(path.join(directory, 'growgame.sqlite'));
   db.exec('PRAGMA busy_timeout=3000');
   const version = db.prepare('PRAGMA user_version').get().user_version;
-  if (version > 13) { db.close(); throw Error('이 서버보다 새로운 DB입니다. 서버를 업데이트하세요.'); }
+  if (version > 15) { db.close(); throw Error('이 서버보다 새로운 DB입니다. 서버를 업데이트하세요.'); }
   const schema = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8');
   const oldColumns = db.prepare('PRAGMA table_info(players)').all().map(column => column.name);
   if (oldColumns.length && !oldColumns.includes('role')) {
@@ -107,6 +107,18 @@ function openStore(directory, {now = Date.now, dailyLimit = false} = {}) {
           AND s.revision=json_extract(a.fingerprint,'$[2]')
         WHERE json_extract(a.fingerprint,'$[0]')='special' AND json_extract(a.fingerprint,'$[3]') IS NULL;
         PRAGMA user_version=13; COMMIT`);
+    } catch (error) { db.exec('ROLLBACK'); db.close(); throw error; }
+  }
+  if (version < 15) {
+    const teacherName = messageColumns.includes('delivery_teacher_name')
+      ? 'COALESCE(delivery_teacher_name,recipient_name)' : 'recipient_name';
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      db.exec(`INSERT OR IGNORE INTO gratitude_teacher_deliveries(message_id,teacher_name,read_at)
+        SELECT id,${teacherName},read_at FROM gratitude_messages WHERE recipient_role='teacher' AND delivered_at<>'';
+        DROP INDEX IF EXISTS gratitude_teacher_inbox;
+        DROP INDEX IF EXISTS gratitude_teacher_delivery_inbox;
+        PRAGMA user_version=15; COMMIT`);
     } catch (error) { db.exec('ROLLBACK'); db.close(); throw error; }
   }
   const quizBank = require('./quiz-bank.cjs').createQuizBank(db, {now, dayAt:quizDayAt, fail});

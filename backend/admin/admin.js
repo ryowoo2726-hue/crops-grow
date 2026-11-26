@@ -30,11 +30,13 @@ let token='',students=[],selected=null,deleting=null,sessionTimer;
 let messagePage=0,messagePages=1,messageRequest=0,recipientRequest=0,composeAttempt=null,activationRequest=null;
 let sentMessagePage=0,sentMessageRequest=0;
 let messageStudents=[];
+let reviewRows=[],reviewSending=false;
 for(let n=1;n<=12;n++) $('class-no').add(new Option(`${n}반`,String(n)));
 function signedOut(){clearTimeout(sessionTimer);token='';students=[];selected=null;deleting=null;$('students').replaceChildren();$('teachers').replaceChildren();$('review-messages').replaceChildren();$('dashboard').hidden=true;$('logout').hidden=true;$('login').hidden=false;for(const id of ['traffic-tx','traffic-rx','traffic-percent'])$(id).textContent='—';$('traffic-progress').value=0;for(const id of ['pin-dialog','delete-dialog'])if($(id).open)$(id).close();
   messageStudents=[];renderMessageStudents();$('message-teacher-names').replaceChildren();
   $('compose-message').reset();syncMessageRecipient();$('compose-message').hidden=true;$('compose-result').textContent='';composeAttempt=null;
   $('sent-messages').replaceChildren();$('sent-messages-empty').hidden=true;$('sent-message-pages').hidden=true;
+  reviewRows=[];$('review-bulk-feedback').textContent='';syncReviewSelection();
 }
 async function api(route,body){
   const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),12000);
@@ -253,28 +255,114 @@ async function loadSentMessages(page){
   $('previous-sent-messages').disabled=sentMessagePage===0;
   $('next-sent-messages').disabled=sentMessagePage+1===data.pages;
 }
+function reviewTeacherNames(row){return row.teacherChoices?.filter(choice=>choice.checked).map(choice=>choice.value);}
+function reviewReady(row){return !row.teacherChoices||row.teacherChoices.some(choice=>choice.checked);}
+function selectedReviewRows(){return reviewRows.filter(row=>row.checkbox.checked&&reviewReady(row));}
+function syncReviewSelection(){
+  const ready=reviewRows.filter(reviewReady).length,chosen=selectedReviewRows().length;
+  const all=$('select-review-page'),bulk=$('send-review-selection');
+  $('review-bulk').hidden=!reviewRows.length;
+  all.checked=ready>0&&chosen===ready;all.indeterminate=chosen>0&&chosen<ready;
+  all.disabled=reviewSending||!ready;bulk.disabled=reviewSending||!chosen;
+  bulk.textContent=reviewSending?'전송 중…':chosen?`선택한 ${chosen}건 전송`:'선택한 편지 전송';
+  $('message-status').disabled=$('refresh-messages').disabled=reviewSending;
+  $('previous-messages').disabled=reviewSending||messagePage===0;
+  $('next-messages').disabled=reviewSending||messagePage+1===messagePages;
+  for(const row of reviewRows){
+    row.checkbox.disabled=row.send.disabled=reviewSending||!reviewReady(row);
+    for(const choice of row.teacherChoices??[])choice.disabled=reviewSending;
+  }
+}
+async function sendReviewed(rows,bulk){
+  if(reviewSending||!rows.length)return;
+  const session=token,feedback=bulk?$('review-bulk-feedback'):rows[0].feedback;
+  const messages=rows.map(row=>({id:row.id,teacherNames:reviewTeacherNames(row)}));
+  if(bulk&&!confirm(`선택한 감사 편지 ${messages.length}건을 전송할까요?`))return;
+  reviewSending=true;feedback.textContent='';feedback.removeAttribute('data-success');syncReviewSelection();
+  if(!bulk){rows[0].send.textContent='전송 중…';rows[0].send.setAttribute('aria-busy','true');}
+  let sent=false;
+  try{
+    await (bulk?api('send-messages',{messages}):api('send-message',messages[0]));
+    if(!token||token!==session)return;
+    sent=true;
+    await loadMessages(messagePage);
+    const text=bulk?`감사 편지 ${messages.length}건을 전송했습니다.`:
+      messages[0].teacherNames?`선생님 ${messages[0].teacherNames.length}명에게 편지를 전송했습니다.`:'받는 사람에게 메시지를 전송했습니다.';
+    $('message').textContent=text;
+    if(bulk){feedback.textContent=text;feedback.setAttribute('data-success','');}
+  }catch(error){
+    if(token===session)feedback.textContent=sent?'편지를 전송했습니다. 목록을 새로고침하세요.':error.message;
+  }finally{
+    reviewSending=false;
+    if(!bulk){rows[0].send.textContent='전송';rows[0].send.removeAttribute('aria-busy');}
+    syncReviewSelection();
+  }
+}
+$('select-review-page').onchange=event=>{
+  for(const row of reviewRows)row.checkbox.checked=event.target.checked&&reviewReady(row);
+  syncReviewSelection();
+};
+$('send-review-selection').onclick=()=>sendReviewed(selectedReviewRows(),true);
 async function loadMessages(page){
   const session=token,request=++messageRequest;
   const data=await api('messages',{status:$('message-status').value,page});
   if(!token||session!==token||request!==messageRequest)return;
   messagePage=data.page;messagePages=data.pages;
+  reviewRows=[];$('review-bulk-feedback').textContent='';
   $('review-messages').replaceChildren();$('messages-empty').hidden=data.items.length>0;
   for(const item of data.items){
     const card=document.createElement('article');card.className='review-message';
-    const title=document.createElement('h2');title.textContent=participantLabel(item.sender)+' → '+participantLabel(item.recipient);
+    const teacher=item.recipient.role==='teacher';
+    const title=document.createElement('h2');
+    const sender=participantLabel(item.sender);
+    const recipients=teacher?(item.deliveryTeacherNames??[item.recipient.name]).map(name=>`${name} 선생님`).join(', '):participantLabel(item.recipient);
+    title.textContent=teacher&&!item.deliveredAt ? sender : sender+' → '+recipients;
     const date=document.createElement('p');date.textContent=new Date(item.createdAt).toLocaleString('ko-KR',{timeZone:'Asia/Seoul'})+' · 미션 '+item.missionId;
     const body=document.createElement('p');body.className='message-body';body.textContent=item.body;
+    card.append(title,date);
+    if(teacher){
+      const original=document.createElement('p');original.className='review-recipient-note';
+      original.textContent='편지에 적힌 성함 · '+item.recipient.name;
+      if(!item.deliveredAt&&!item.recipientRegistered)original.textContent+=' (같은 이름의 계정 없음)';
+      card.append(original);
+    }
+    card.append(body);
     const actions=document.createElement('div');actions.className='message-actions';
-    const unregistered=item.recipientRegistered===false;
-    if(unregistered){const status=document.createElement('span');status.className='registration-status';status.textContent='등록 안됨';actions.append(status);const hint=document.createElement('p');hint.className='registration-help';hint.textContent='받는 선생님이 같은 이름으로 게임에 참여한 뒤 목록을 새로고침하면 전송할 수 있습니다.';card.append(title,date,body,hint);}
-    else card.append(title,date,body);
-    const send=document.createElement('button');send.textContent=item.deliveredAt?'전송 완료':'전송';send.disabled=!!item.deliveredAt||unregistered;
-    if(unregistered)send.title='받는 선생님이 같은 이름으로 게임에 참여한 뒤 목록을 새로고침하세요.';
-    send.onclick=async()=>{send.disabled=true;send.textContent='전송 중…';send.setAttribute('aria-busy','true');try{await api('send-message',{id:item.id});await loadMessages(messagePage);$('message').textContent='받는 사람에게 메시지를 전송했습니다.';}catch(error){showError(error);send.disabled=false;send.textContent='전송';}finally{send.removeAttribute('aria-busy');}};
+    const send=document.createElement('button');send.textContent=item.deliveredAt?'전송 완료':'전송';send.disabled=!!item.deliveredAt||teacher;
+    let teacherChoices;
+    const checkbox=document.createElement('input');checkbox.type='checkbox';
+    if(teacher&&!item.deliveredAt){
+      const names=(data.teachers??[]).filter(name=>item.sender.role!=='teacher'||item.sender.name!==name);
+      const picker=document.createElement('details');picker.className='review-recipient-picker';
+      const summary=document.createElement('summary');
+      summary.textContent=names.length?'받는 선생님 선택':'선택할 선생님이 없습니다';
+      const list=document.createElement('div');list.className='review-recipient-list';
+      list.setAttribute('role','group');list.setAttribute('aria-label','받는 선생님 목록');
+      teacherChoices=names.map(name=>{
+        const label=document.createElement('label');label.className='review-check';
+        const input=document.createElement('input');input.type='checkbox';input.value=name;
+        input.onchange=()=>{
+          const count=teacherChoices.filter(choice=>choice.checked).length;
+          summary.textContent=count?`받는 선생님 · ${count}명 선택`:'받는 선생님 선택';
+          checkbox.checked=false;syncReviewSelection();
+        };
+        label.append(input,name);list.append(label);return input;
+      });
+      if(!names.length)list.textContent='선생님이 게임에 참여한 뒤 목록을 새로고침하세요.';
+      picker.append(summary,list);actions.append(picker);
+    }
     actions.append(send);card.append(actions);$('review-messages').append(card);
+    if(item.deliveredAt)continue;
+    const feedback=document.createElement('p');feedback.className='review-feedback';feedback.setAttribute('role','status');card.append(feedback);
+    const choice=document.createElement('label');choice.className='review-check';
+    checkbox.setAttribute('aria-label',`${title.textContent} 감사 편지 선택`);
+    choice.append(checkbox,'이 편지 선택');actions.append(choice);
+    const row={id:item.id,checkbox,teacherChoices,send,feedback};reviewRows.push(row);
+    checkbox.onchange=syncReviewSelection;
+    send.onclick=()=>sendReviewed([row],false);
   }
   $('message-page').textContent=`${messagePage+1} / ${messagePages}`;
-  $('previous-messages').disabled=messagePage===0;$('next-messages').disabled=messagePage+1===messagePages;
+  syncReviewSelection();
 }
 $('message-status').onchange=()=>loadMessages(0).catch(showError);
 $('refresh-messages').onclick=()=>Promise.all([loadMessages(messagePage),loadMessageRecipients(),loadSentMessages(sentMessagePage)]).catch(showError);

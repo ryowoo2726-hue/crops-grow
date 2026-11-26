@@ -160,7 +160,7 @@ class _GratitudeMissionPopupState extends State<GratitudeMissionPopup>
             ),
             const SizedBox(height: 8),
             const WordText(
-              '입력한 성함으로 전달해요. 아직 참여하지 않은 선생님에게 쓴 글은 관리자에서 보관해요.',
+              '성함을 적어 주면 관리자가 확인하고, 받으실 선생님을 직접 선택해 전달해요.',
               style: TextStyle(fontSize: 12, height: 1.6),
             ),
           ] else

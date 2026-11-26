@@ -97,9 +97,15 @@ CREATE TABLE IF NOT EXISTS gratitude_messages (
     OR (recipient_role='teacher' AND recipient_grade IS NULL AND recipient_class IS NULL AND recipient_number IS NULL AND length(recipient_name)>0))
 ) STRICT;
 CREATE INDEX IF NOT EXISTS gratitude_inbox ON gratitude_messages(recipient_grade,recipient_class,recipient_number,delivered_at);
-CREATE INDEX IF NOT EXISTS gratitude_teacher_inbox ON gratitude_messages(recipient_name,delivered_at) WHERE recipient_role='teacher';
 CREATE UNIQUE INDEX IF NOT EXISTS gratitude_teacher_recipient ON gratitude_messages(campaign_id,player_id,recipient_name) WHERE recipient_role='teacher';
 CREATE INDEX IF NOT EXISTS gratitude_sender ON gratitude_messages(player_id,campaign_id);
+CREATE TABLE IF NOT EXISTS gratitude_teacher_deliveries (
+  message_id TEXT NOT NULL REFERENCES gratitude_messages(id) ON DELETE CASCADE,
+  teacher_name TEXT NOT NULL,
+  read_at TEXT NOT NULL DEFAULT '',
+  PRIMARY KEY(message_id,teacher_name)
+) STRICT;
+CREATE INDEX IF NOT EXISTS gratitude_teacher_inbox_deliveries ON gratitude_teacher_deliveries(teacher_name,message_id);
 CREATE TABLE IF NOT EXISTS special_quiz_results (
   campaign_id INTEGER NOT NULL REFERENCES special_campaigns(id),
   player_id INTEGER NOT NULL REFERENCES players(id) ON DELETE CASCADE,

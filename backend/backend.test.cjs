@@ -101,11 +101,11 @@ test('관리자 메시지: v9 이관, 가입 전 전체·개인 발송, 재시�
   assert.equal(lastPage.items.length,1);
   const firstPage=(await request(remove,lateAgain.token,{id:lastPage.items[0].id,page:1})).data;
   assert.deepEqual([firstPage.page,firstPage.pages,firstPage.total],[0,1,20]);
-  assert.equal(app.store.db.prepare('PRAGMA user_version').get().user_version,13);
+  assert.equal(app.store.db.prepare('PRAGMA user_version').get().user_version,15);
   assert.deepEqual(app.store.db.prepare('PRAGMA foreign_key_check').all(),[]);
 });
 
-test('선생님 수신: 미등록 저장·가입 후 전송·이름 정규화·학생 격리·읽음·통합 4명 제한',async t=>{
+test('선생님 수신: 원문 보존·관리자 수신자 선택·수신함 격리·읽음·통합 4명 제한',async t=>{
   const directory=fs.mkdtempSync(path.join(os.tmpdir(),'growgame-teacher-recipient-'));
   const app=createBackend({directory,adminCredentials:await hashPassword('1234')});
   await new Promise(resolve=>app.server.listen(0,'127.0.0.1',resolve));
@@ -134,16 +134,27 @@ test('선생님 수신: 미등록 저장·가입 후 전송·이름 정규화·�
   let review=(await request('/api/admin/messages',{status:'pending',page:0},admin)).data.items.find(item=>item.id===saved.id);
   assert.deepEqual(review.recipient,{role:'teacher',name:'가상교사'});assert.equal(review.recipientRegistered,false);
   const blocked=await request('/api/admin/send-message',{id:saved.id},admin);
-  assert.equal(blocked.status,409);assert.match(blocked.data.error,/등록 안됨/);
+  assert.equal(blocked.status,400);assert.match(blocked.data.error,/선택/);
+  assert.equal((await request('/api/admin/send-message',{id:saved.id,teacherName:'아직미등록'},admin)).status,409);
   assert.equal((await request('/api/messages',null,otherTeacher.token)).data.total,0);
-  const teacher=await app.store.login({role:'teacher',name:'  '+'가상교사'.normalize('NFD')+'  '},'1234');
+  const typedNameAccount=await app.store.login({role:'teacher',name:'  '+'가상교사'.normalize('NFD')+'  '},'1234');
+  const teacher=await app.store.login({role:'teacher',name:'실제수신교사'},'1234');
   assert.equal((await request('/api/messages/delete',{id:saved.id},teacher.token)).data.total,0);
-  review=(await request('/api/admin/messages',{status:'pending',page:0},admin)).data.items.find(item=>item.id===saved.id);
+  const pending=(await request('/api/admin/messages',{status:'pending',page:0},admin)).data;
+  assert.deepEqual(new Set(pending.teachers),new Set(['가상교사','다른교사','실제수신교사']));
+  review=pending.items.find(item=>item.id===saved.id);
   assert.equal(review.recipientRegistered,true);
-  assert.equal((await request('/api/admin/send-message',{id:saved.id},admin)).status,200);
+  assert.equal((await request('/api/admin/send-message',{id:saved.id},admin)).status,400);
+  const delivery={id:saved.id,teacherNames:['실제수신교사','다른교사']};
+  assert.equal((await request('/api/admin/send-message',delivery,student.token)).status,401);
+  assert.equal((await request('/api/admin/send-message',{...delivery,teacherNames:['실제수신교사','실제수신교사']},admin)).status,400);
+  assert.equal((await request('/api/admin/send-message',delivery,admin)).status,200);
+  assert.equal((await request('/api/admin/send-message',{...delivery,teacherNames:delivery.teacherNames.toReversed()},admin)).status,200);
+  assert.equal((await request('/api/admin/send-message',{...delivery,teacherNames:['가상교사']},admin)).status,409);
+  assert.equal((await request('/api/gratitude',input)).data.id,saved.id);
   assert.equal((await request('/api/me',null,teacher.token)).data.state.unreadMessageCount,1);
   assert.equal((await request('/api/messages',null,teacher.token)).data.items[0].body,input.message);
-  for(const token of [sender.token,student.token,otherTeacher.token]){
+  for(const token of [sender.token,student.token,typedNameAccount.token]){
     assert.equal((await request('/api/messages',null,token)).data.total,0);
     assert.equal((await request('/api/messages/read',{ids:[saved.id]},token)).data.unreadCount,0);
     assert.equal((await request('/api/messages/delete',{id:saved.id},token)).data.total,0);
@@ -153,14 +164,66 @@ test('선생님 수신: 미등록 저장·가입 후 전송·이름 정규화·�
   assert.ok((await request('/api/messages',null,teacher.token)).data.items[0].readAt);
   assert.equal((await request('/api/messages/delete',{id:saved.id},teacher.token)).data.total,0);
   assert.equal((await request('/api/me',null,teacher.token)).data.state.unreadMessageCount,0);
-  assert.equal((await request('/api/admin/messages',{status:'sent',page:0},admin)).data.items[0].body,input.message);
+  const otherInbox=(await request('/api/messages',null,otherTeacher.token)).data;
+  assert.equal(otherInbox.unreadCount,1);
+  assert.equal(otherInbox.items[0].id,saved.id);
+  assert.equal(otherInbox.items[0].readAt,'');
+  const sent=(await request('/api/admin/messages',{status:'sent',page:0},admin)).data.items[0];
+  assert.equal(sent.body,input.message);
+  assert.equal(sent.recipient.name,'가상교사');
+  assert.deepEqual(new Set(sent.deliveryTeacherNames),new Set(delivery.teacherNames));
   assert.equal(app.store.snapshot(senderId).progress,25);
-  for(const [i,recipient] of [{grade:1,classNo:1,number:2},{role:'teacher',name:'둘째교사'},{role:'teacher',name:'셋째교사'}].entries())
-    assert.equal((await request('/api/gratitude',{...input,requestId:'teacher-mixed-recipient-'+i,recipient})).status,200);
+  const letters=[];
+  for(const [i,recipient] of [{grade:1,classNo:1,number:2},{role:'teacher',name:'둘째교사'},{role:'teacher',name:'셋째교사'}].entries()){
+    const response=await request('/api/gratitude',{...input,requestId:'teacher-mixed-recipient-'+i,recipient});
+    assert.equal(response.status,200);letters.push(response.data.id);
+  }
+  const batch={messages:[{id:letters[0]},{id:letters[1],teacherNames:['다른교사','미등록계정']}]};
+  assert.equal((await request('/api/admin/send-messages',batch,student.token)).status,401);
+  const failedBatch=await request('/api/admin/send-messages',batch,admin);
+  assert.equal(failedBatch.status,409);
+  assert.match(failedBatch.data.error,/2번째/);
+  assert.equal((await request('/api/messages',null,student.token)).data.total,0);
+  assert.equal(app.store.db.prepare('SELECT COUNT(*) n FROM gratitude_teacher_deliveries WHERE message_id=?').get(letters[1]).n,0);
+  batch.messages[1].teacherNames=['다른교사','실제수신교사'];
+  assert.deepEqual((await request('/api/admin/send-messages',batch,admin)).data,{ok:true,count:2});
+  assert.equal((await request('/api/admin/send-messages',batch,admin)).status,200);
+  assert.equal((await request('/api/messages',null,student.token)).data.items[0].id,letters[0]);
+  assert.deepEqual(new Set((await request('/api/messages',null,otherTeacher.token)).data.items.map(item=>item.id)),new Set([saved.id,letters[1]]));
+  assert.equal(app.store.specialMissions.review('pending',0).items[0].id,letters[2]);
   assert.equal((await request('/api/gratitude',{...input,requestId:'teacher-limit-recipient',recipient:{role:'teacher',name:'넷째교사'}})).status,409);
   assert.equal(app.store.specialMissions.status(senderId).remaining,0);
   const selfMission=app.store.specialMissions.activate({kind:'gratitude',requestId:'teacher-recipient-self'});
-  assert.equal((await request('/api/gratitude',{...input,missionId:selfMission.id,requestId:'teacher-self-recipient'},teacher.token)).status,400);
+  assert.equal((await request('/api/gratitude',{...input,missionId:selfMission.id,requestId:'teacher-self-recipient'},typedNameAccount.token)).status,400);
+  const different=(await request('/api/gratitude',{...input,missionId:selfMission.id,requestId:'teacher-other-recipient'},teacher.token)).data;
+  assert.equal((await request('/api/admin/send-message',{id:different.id,teacherName:'실제수신교사'},admin)).status,400);
+  assert.deepEqual(app.store.db.prepare('PRAGMA foreign_key_check').all(),[]);
+});
+
+test('v13 감사 편지 이관: 이미 전달한 선생님 편지와 읽음 보존',async t=>{
+  const directory=fs.mkdtempSync(path.join(os.tmpdir(),'growgame-messages-v13-'));
+  let app=createBackend({directory});
+  t.after(()=>{app.store.db.close();assert.ok(directory.startsWith(path.resolve(os.tmpdir())+path.sep));fs.rmSync(directory,{recursive:true,force:true});});
+  const testPin=String(crypto.getRandomValues(new Uint16Array(1))[0]%10000).padStart(4,'0');
+  const author=await app.store.login({grade:1,classNo:1,number:1},testPin);
+  const teacherName='이전수신교사';
+  const teacher=await app.store.login({role:'teacher',name:teacherName},testPin);
+  const teacherId=app.store.authenticate(teacher.token);
+  const mission=app.store.specialMissions.activate({kind:'gratitude',requestId:'v13-teacher-campaign'});
+  const {id}=app.store.specialMissions.submit(app.store.authenticate(author.token),{missionId:mission.id,
+    requestId:'v13-teacher-gratitude',recipient:{role:'teacher',name:teacherName},message:'따뜻하게 가르쳐 주셔서 고맙습니다.'});
+  app.store.specialMissions.deliver(id,teacherName);
+  app.store.specialMissions.markRead(teacherId,[id]);
+  const oldInbox=app.store.specialMissions.inbox(teacherId,0);
+  app.store.db.exec(`UPDATE gratitude_messages SET read_at=(SELECT read_at FROM gratitude_teacher_deliveries WHERE message_id=gratitude_messages.id)
+      WHERE recipient_role='teacher' AND delivered_at<>'';
+    DROP TABLE gratitude_teacher_deliveries;
+    CREATE INDEX gratitude_teacher_inbox ON gratitude_messages(recipient_name,delivered_at) WHERE recipient_role='teacher';
+    PRAGMA user_version=13;`);
+  app.store.db.close();app=createBackend({directory});
+  assert.equal(app.store.db.prepare('PRAGMA user_version').get().user_version,15);
+  assert.deepEqual(app.store.specialMissions.inbox(teacherId,0),oldInbox);
+  assert.deepEqual(app.store.specialMissions.review('sent',0).items[0].deliveryTeacherNames,[teacherName]);
   assert.deepEqual(app.store.db.prepare('PRAGMA foreign_key_check').all(),[]);
 });
 
@@ -192,7 +255,7 @@ test('v6 감사 메시지 이관: id·수신 학생·읽음·전송·남은 보�
   app.store.db.exec(`INSERT INTO messages_v6(${columns}) SELECT ${columns} FROM gratitude_messages;
     DROP TABLE gratitude_messages; ALTER TABLE messages_v6 RENAME TO gratitude_messages; PRAGMA user_version=6;`);
   app.store.db.close();app=createBackend({directory});
-  assert.equal(app.store.db.prepare('PRAGMA user_version').get().user_version,13);
+  assert.equal(app.store.db.prepare('PRAGMA user_version').get().user_version,15);
   assert.deepEqual(app.store.snapshot(senderId),before);
   assert.deepEqual(app.store.specialMissions.inbox(receiverId,0),inbox);
   assert.deepEqual(app.store.db.prepare('SELECT * FROM gratitude_messages ORDER BY id').all().map(({recipient_role,...row})=>{assert.equal(recipient_role,'student');return row;}),rows);
@@ -221,7 +284,7 @@ test('읽지 않은 메시지: v5 이전·수신자 권한·전달 상태·페�
   // 기존 v5 DB에는 읽음 열이 없습니다. 메시지와 전달 시각은 그대로 이관합니다.
   app.store.db.exec('ALTER TABLE gratitude_messages DROP COLUMN read_at; PRAGMA user_version=5;');
   app.store.db.close();app=createBackend({directory,now:()=>clock});
-  assert.equal(app.store.db.prepare('PRAGMA user_version').get().user_version,13);
+  assert.equal(app.store.db.prepare('PRAGMA user_version').get().user_version,15);
   assert.deepEqual(app.store.snapshot(receiverId),before);
   assert.deepEqual(app.store.db.prepare('PRAGMA foreign_key_check').all(),[]);
   const start=()=>new Promise(resolve=>app.server.listen(0,'127.0.0.1',resolve));
@@ -317,7 +380,7 @@ test('기념일 특별 퀴즈: 관리자 선택, 10문항, 서버 채점, 재시
   await new Promise(resolve=>app.server.close(resolve));app.store.db.close();
   app=createBackend({directory,adminCredentials:await hashPassword('1234')});await start();
   assert.equal((await request('/api/special-quiz?missionId='+lastMission.id)).data.result.correctCount,7);
-  assert.equal(app.store.db.prepare('PRAGMA user_version').get().user_version,13);
+  assert.equal(app.store.db.prepare('PRAGMA user_version').get().user_version,15);
   const replacement=(await request('/api/admin/special',{
     kind:'student-independence',requestId:'special-quiz-replacement',
   },(await request('/api/admin/session',{password:'1234'},'')).data.token)).data.mission;
@@ -368,7 +431,7 @@ test('v4 미션 이전: 기존 감사 메시지·학생·보상 보존과 노션
   assert.ok(delivered);
   app.store.specialMissions.deliver(saved.id);
   assert.equal(app.store.specialMissions.review('sent',0).items[0].deliveredAt,delivered);
-  assert.equal(app.store.db.prepare('PRAGMA user_version').get().user_version,13);
+  assert.equal(app.store.db.prepare('PRAGMA user_version').get().user_version,15);
   assert.deepEqual(app.store.db.prepare('PRAGMA foreign_key_check').all(),[]);
 });
 
@@ -538,7 +601,7 @@ test('이전 v2 DB의 학생·PIN·세션·수확을 최신 스키마로 이관�
   assert.equal(state.profile.name,'이관학생');assert.equal(state.progress,50);assert.equal(state.harvestCount,1);
   assert.equal((await app.store.login({grade:1,classNo:12,number:1},'1234')).state.profile.classNo,12);
   assert.equal((await app.store.login({role:'teacher',name:'이관교사'},'4321')).state.profile.role,'teacher');
-  assert.equal(app.store.db.prepare('PRAGMA user_version').get().user_version,13);
+  assert.equal(app.store.db.prepare('PRAGMA user_version').get().user_version,15);
   assert.deepEqual(app.store.db.prepare('PRAGMA foreign_key_check').all(),[]);
 });
 
@@ -731,7 +794,7 @@ test('과목당 하루 한 세트, 기기 채점 요약과 완료 이력·보상
   await new Promise(resolve=>app.server.close(resolve));
   app.store.db.exec('DROP TABLE quiz_runs; DROP TABLE quiz_sets; PRAGMA user_version=1;');app.store.db.close();
   app=createBackend({directory,now:()=>clock});
-  assert.equal(app.store.db.prepare('PRAGMA user_version').get().user_version,13);
+  assert.equal(app.store.db.prepare('PRAGMA user_version').get().user_version,15);
   assert.equal(app.store.snapshot(second).harvestCount,1);
 });
 
@@ -981,7 +1044,7 @@ test('선생님 관리: PIN 변경·권한·전체 기록 삭제·롤백·이름
   const mission=app.store.specialMissions.activate({kind:'gratitude',requestId:'teacher-admin-gratitude'});
   app.store.specialMissions.submit(id,{missionId:mission.id,requestId:'teacher-admin-sent-message',recipient:{grade:1,classNo:1,number:1},message:'항상 친절하게 도와주어서 정말 고맙습니다.'});
   const incoming=app.store.specialMissions.submit(studentId,{missionId:mission.id,requestId:'teacher-admin-received-message',recipient:profile,message:'항상 따뜻하게 가르쳐 주셔서 정말 감사합니다.'});
-  app.store.specialMissions.deliver(incoming.id);
+  app.store.specialMissions.deliver(incoming.id,profile.name);
   const special=app.store.specialMissions.activate({kind:'patriots',requestId:'teacher-admin-special'});
   app.store.specialMissions.submitQuiz(id,{missionId:special.id,answers:Array(10).fill(0)});
   const beforeState=app.store.snapshot(id),studentState=app.store.snapshot(studentId);

@@ -154,27 +154,35 @@ function createSpecialMissions(db, {now, fail, profileOf}) {
     const player = db.prepare('SELECT role,name,grade,class_no classNo,number FROM players WHERE id=?').get(playerId);
     const target=adminRecipientKey(player);
     return player.role === 'teacher'
-      ? {target,filter:"recipient_role='teacher' AND recipient_name=?",params:[player.name]}
-      : {target,filter:"recipient_role='student' AND recipient_grade=? AND recipient_class=? AND recipient_number=?",params:[player.grade,player.classNo,player.number]};
+      ? {target,teacher:true,from:'gratitude_messages m JOIN gratitude_teacher_deliveries g ON g.message_id=m.id',
+        filter:'g.teacher_name=?',read:'g.read_at',params:[player.name]}
+      : {target,teacher:false,from:'gratitude_messages m',
+        filter:"m.recipient_role='student' AND m.recipient_grade=? AND m.recipient_class=? AND m.recipient_number=?",
+        read:'m.read_at',params:[player.grade,player.classNo,player.number]};
   }
-  const inInbox = 'NOT EXISTS (SELECT 1 FROM inbox_deletions d WHERE d.player_id=$player AND d.message_id=m.id)';
+  const inboxCondition = id => `NOT EXISTS (SELECT 1 FROM inbox_deletions d WHERE d.player_id=$player AND d.message_id=${id})`;
+  const inInbox = inboxCondition('m.id');
   function unreadCount(playerId) {
-    const {target,filter,params} = recipientFilter(playerId);
+    const {target,from,filter,read,params} = recipientFilter(playerId);
     return db.prepare(`SELECT
-      (SELECT COUNT(*) FROM gratitude_messages m WHERE ${filter} AND delivered_at<>'' AND read_at='' AND ${inInbox}) +
+      (SELECT COUNT(*) FROM ${from} WHERE ${filter} AND m.delivered_at<>'' AND ${read}='' AND ${inInbox}) +
       (SELECT COUNT(*) FROM admin_messages m WHERE m.recipient_json IN ('"all"',?) AND ${inInbox} AND NOT EXISTS (
         SELECT 1 FROM admin_message_reads r WHERE r.player_id=$player AND r.message_id=m.id)) n`).get({$player:playerId},...params,target).n;
   }
   function markRead(playerId, ids) {
     if (!Array.isArray(ids) || !ids.length || ids.length > 20 ||
         ids.some(id=>typeof id !== 'string' || !id.length || id.length > 100)) fail(400,'읽은 메시지를 확인해 주세요.');
-    const {target,filter,params} = recipientFilter(playerId);
+    const {target,teacher,filter,params} = recipientFilter(playerId);
     const placeholders=ids.map(()=>'?').join(',');
     const readAt=new Date(now()).toISOString();
     db.exec('BEGIN IMMEDIATE');
     try {
-      db.prepare(`UPDATE gratitude_messages AS m SET read_at=? WHERE id IN (${placeholders})
-        AND ${filter} AND delivered_at<>'' AND read_at='' AND ${inInbox}`).run({$player:playerId},readAt,...ids,...params);
+      const update = teacher
+        ? `UPDATE gratitude_teacher_deliveries AS m SET read_at=? WHERE message_id IN (${placeholders})
+          AND teacher_name=? AND read_at='' AND ${inboxCondition('m.message_id')}`
+        : `UPDATE gratitude_messages AS m SET read_at=? WHERE id IN (${placeholders})
+          AND ${filter} AND delivered_at<>'' AND read_at='' AND ${inInbox}`;
+      db.prepare(update).run({$player:playerId},readAt,...ids,...params);
       db.prepare(`INSERT INTO admin_message_reads (player_id,message_id,read_at)
         SELECT $player,id,? FROM admin_messages m WHERE id IN (${placeholders}) AND recipient_json IN ('"all"',?) AND ${inInbox}
         ON CONFLICT (player_id,message_id) DO NOTHING`).run({$player:playerId},readAt,...ids,target);
@@ -188,9 +196,9 @@ function createSpecialMissions(db, {now, fail, profileOf}) {
   function deleteFromInbox(playerId, id, page) {
     checkPage(page);
     if (typeof id !== 'string' || !id.length || id.length > 100) fail(400,'삭제할 메시지를 확인해 주세요.');
-    const {target,filter,params} = recipientFilter(playerId);
+    const {target,from,filter,params} = recipientFilter(playerId);
     db.prepare(`INSERT OR IGNORE INTO inbox_deletions (player_id,message_id)
-      SELECT $player,$id WHERE EXISTS (SELECT 1 FROM gratitude_messages WHERE id=$id AND ${filter} AND delivered_at<>'')
+      SELECT $player,$id WHERE EXISTS (SELECT 1 FROM ${from} WHERE m.id=$id AND ${filter} AND m.delivered_at<>'')
         OR EXISTS (SELECT 1 FROM admin_messages WHERE id=$id AND recipient_json IN ('"all"',?))`)
       .run({$player:playerId,$id:id},...params,target);
     return inbox(playerId,page);
@@ -198,14 +206,14 @@ function createSpecialMissions(db, {now, fail, profileOf}) {
   function inbox(playerId, page) {
     checkPage(page);
     const recipient = recipientFilter(playerId);
-    const {params,target}=recipient;
-    const filter = `WHERE ${recipient.filter} AND delivered_at<>'' AND ${inInbox}`;
-    const total = db.prepare(`SELECT (SELECT COUNT(*) FROM gratitude_messages m ${filter}) +
+    const {from,read,params,target}=recipient;
+    const filter = `WHERE ${recipient.filter} AND m.delivered_at<>'' AND ${inInbox}`;
+    const total = db.prepare(`SELECT (SELECT COUNT(*) FROM ${from} ${filter}) +
       (SELECT COUNT(*) FROM admin_messages m WHERE recipient_json IN ('"all"',?) AND ${inInbox}) n`).get({$player:playerId},...params,target).n;
     const pages = Math.max(1,Math.ceil(total/20));
     page = Math.min(page,pages-1);
     // 기존 게임도 보낸 사람을 '관리자 선생님'으로 표시할 수 있는 형식입니다.
-    const items = db.prepare(`SELECT id,sender_json,body,delivered_at deliveredAt,read_at readAt FROM gratitude_messages m ${filter}
+    const items = db.prepare(`SELECT m.id,m.sender_json,m.body,m.delivered_at deliveredAt,${read} readAt FROM ${from} ${filter}
       UNION ALL
       SELECT m.id,'{"role":"teacher","name":"관리자"}',m.body,m.sent_at,COALESCE(r.read_at,'')
       FROM admin_messages m LEFT JOIN admin_message_reads r ON r.message_id=m.id AND r.player_id=$player
@@ -214,6 +222,8 @@ function createSpecialMissions(db, {now, fail, profileOf}) {
       .all({$player:playerId},...params,target,page*20).map(({sender_json,...row})=>({...row,sender:JSON.parse(sender_json)}));
     return {items,page,pages,total,unreadCount:unreadCount(playerId)};
   }
+  const teacherDeliveries = db.prepare('SELECT teacher_name FROM gratitude_teacher_deliveries WHERE message_id=? ORDER BY teacher_name');
+  const deliveredTeacherNames = id => teacherDeliveries.all(id).map(row=>row.teacher_name);
   function review(statusFilter, page) {
     if (!['pending','sent','all'].includes(statusFilter) || !Number.isSafeInteger(page) || page < 0 || page > 100000)
       fail(400,'메시지 상태와 페이지를 확인하세요.');
@@ -226,17 +236,61 @@ function createSpecialMissions(db, {now, fail, profileOf}) {
       recipient:row.recipient_role === 'teacher' ? {role:'teacher',name:row.recipient_name} :
         {role:'student',grade:row.recipient_grade,classNo:row.recipient_class,number:row.recipient_number,name:row.recipient_name},
       recipientRegistered:row.recipient_role !== 'teacher' || !!db.prepare("SELECT 1 FROM players WHERE role='teacher' AND name=?").get(row.recipient_name),
+      deliveryTeacherNames:row.recipient_role === 'teacher' && row.delivered_at ? deliveredTeacherNames(row.id) : [],
       body:row.body,createdAt:row.created_at,deliveredAt:row.delivered_at,
     }));
-    return {items,page,pages,total};
+    const teachers = items.some(item=>item.recipient.role==='teacher' && !item.deliveredAt)
+      ? db.prepare("SELECT name FROM players WHERE role='teacher' ORDER BY name").all().map(row=>row.name) : [];
+    return {items,page,pages,total,teachers};
   }
-  function deliver(id) {
-    if (typeof id !== 'string') fail(400,'전송할 메시지를 선택하세요.');
+  function deliverOne({id,teacherName,teacherNames}, deliveredAt) {
     const message = db.prepare('SELECT * FROM gratitude_messages WHERE id=?').get(id);
     if (!message) fail(404,'메시지를 찾을 수 없습니다.');
-    if (message.recipient_role === 'teacher' && !db.prepare("SELECT 1 FROM players WHERE role='teacher' AND name=?").get(message.recipient_name))
-      fail(409,'등록 안됨: 받는 선생님이 같은 이름으로 참여한 뒤 전송해 주세요.');
-    db.prepare("UPDATE gratitude_messages SET delivered_at=? WHERE id=? AND delivered_at=''").run(new Date(now()).toISOString(),id);
+    if (message.recipient_role === 'teacher') {
+      const names = teacherNames ?? [teacherName];
+      if (!Array.isArray(names) || !names.length || names.some(name=>typeof name !== 'string' || !name || name.length > 50)
+          || new Set(names).size !== names.length)
+        fail(400,'실제로 받으실 선생님을 선택하세요.');
+      if (message.delivered_at) {
+        const existing = deliveredTeacherNames(id);
+        if (existing.length !== names.length || names.some(name=>!existing.includes(name)))
+          fail(409,'이미 다른 선생님에게 전송된 편지입니다.');
+        return;
+      }
+      const findTeacher = db.prepare("SELECT id FROM players WHERE role='teacher' AND name=?");
+      const insert = db.prepare('INSERT INTO gratitude_teacher_deliveries(message_id,teacher_name) VALUES(?,?)');
+      for (const name of names) {
+        const teacher = findTeacher.get(name);
+        if (!teacher) fail(409,'선택한 선생님의 계정을 찾을 수 없습니다. 목록을 새로고침하세요.');
+        if (teacher.id === message.player_id) fail(400,'편지를 쓴 본인에게는 전송할 수 없습니다.');
+        insert.run(id,name);
+      }
+    }
+    db.prepare("UPDATE gratitude_messages SET delivered_at=? WHERE id=? AND delivered_at=''").run(deliveredAt,id);
+  }
+  function deliverBatch(messages) {
+    if (!Array.isArray(messages) || !messages.length || messages.length > 20 ||
+        messages.some(item=>typeof item?.id !== 'string' || !item.id || item.id.length > 100) ||
+        new Set(messages.map(item=>item.id)).size !== messages.length)
+      fail(400,'전송할 편지를 1~20건 선택하세요.');
+    const deliveredAt = new Date(now()).toISOString();
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      for (const [index,message] of messages.entries()) {
+        try { deliverOne(message,deliveredAt); }
+        catch (error) {
+          if (messages.length > 1 && error.status) {
+            fail(error.status,`선택한 ${index+1}번째 편지 · ${error.message} 선택한 편지는 전송하지 않았습니다.`);
+          }
+          throw error;
+        }
+      }
+      db.exec('COMMIT');
+      return {ok:true,count:messages.length};
+    } catch (error) { db.exec('ROLLBACK'); throw error; }
+  }
+  function deliver(id, teacherName, teacherNames) {
+    deliverBatch([{id,teacherName,teacherNames}]);
     return {ok:true};
   }
   function sendAdminMessage({recipient,message,requestId}) {
@@ -292,6 +346,6 @@ function createSpecialMissions(db, {now, fail, profileOf}) {
       });
     return {items,page,pages,total};
   }
-  return {current,activate,status,submit,inbox,review,deliver,sendAdminMessage,sentAdminMessages,claimGrowth,pendingGrowth,quiz,submitQuiz,unreadCount,markRead,deleteFromInbox};
+  return {current,activate,status,submit,inbox,review,deliver,deliverBatch,sendAdminMessage,sentAdminMessages,claimGrowth,pendingGrowth,quiz,submitQuiz,unreadCount,markRead,deleteFromInbox};
 }
 module.exports = {createSpecialMissions};
