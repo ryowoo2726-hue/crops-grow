@@ -277,13 +277,22 @@ const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
         assert.equal(await run("document.getElementById('message-content').value"),'');
       }
       await run("document.querySelector('[data-panel=\"special-panel\"]').click()");
-      const missionTitles={patriots:'순국선열의 날',farmers:'농업인의 날','student-independence':'학생독립운동기념일'};
+      const missionTitles={patriots:'순국선열의 날',farmers:'농업인의 날','student-independence':'학생독립운동기념일',survey:'설문조사'};
       for(const [kind,title] of Object.entries(missionTitles)){
         await run(`document.getElementById('special-kind').value='${kind}';document.getElementById('special-kind').dispatchEvent(new Event('change'));document.querySelector('#special-form button[type=submit]').click()`);
         await wait(`document.getElementById('active-special').textContent.includes('${title}')`);
         assert.equal(app.store.special().kind,kind);
         assert.equal(await run("document.documentElement.scrollWidth<=innerWidth"),true);
       }
+      await wait("!document.getElementById('survey-summary').hidden && document.getElementById('survey-count').textContent.includes('0명 제출')");
+      const surveyId=app.store.special().id;
+      app.store.specialMissions.submitSurvey(app.store.authenticate(sender.token),{missionId:surveyId,answers:Array(8).fill(0)});
+      await run("document.getElementById('refresh-survey').click()");
+      await wait("document.getElementById('survey-count').textContent.includes('1명 제출')");
+      assert.equal(await run("document.querySelectorAll('#survey-questions details').length"),8);
+      await run("document.querySelector('#survey-questions summary').click()");
+      assert.equal(await run("document.querySelector('#survey-questions details[open] li').textContent"),'정말 재미있었어요 · 1명');
+      assert.equal(await run("document.documentElement.scrollWidth<=innerWidth"),true);
       await run("document.querySelector('[data-panel=\"students-panel\"]').click()");
       await run("document.querySelector('.delete-button').click()");
       assert.equal(await run("document.getElementById('delete-dialog').open"),true);

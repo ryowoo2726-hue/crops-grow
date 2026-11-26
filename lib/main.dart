@@ -20,6 +20,7 @@ import 'missions/quiz/set_popup.dart';
 import 'missions/special/popup.dart';
 import 'missions/special/gratitude.dart';
 import 'missions/special/poster.dart';
+import 'missions/special/survey.dart';
 import 'rankings/board.dart';
 import 'missions/quiz/status_stamp.dart';
 import 'storage_stub.dart' if (dart.library.js_interop) 'storage.dart';
@@ -1192,6 +1193,10 @@ class _FarmGameState extends State<FarmGame>
       await gratitudeMission(data);
       return;
     }
+    if ((data['mission'] as Map?)?['kind'] == 'survey') {
+      await surveyMission(data);
+      return;
+    }
     if ((data['mission'] as Map?)?['poster'] != null) {
       await commemorativeMission(Map<String, dynamic>.from(data['mission']));
       return;
@@ -1222,6 +1227,30 @@ class _FarmGameState extends State<FarmGame>
       );
   }
 
+  Future<void> surveyMission(Map<String, dynamic> data) async {
+    final mission = data['mission'] as Map<String, dynamic>;
+    final questions = [
+      for (final item in data['surveyQuestions'] as List)
+        (
+          question: item['question'] as String,
+          choices: List<String>.from(item['choices'] as List),
+        ),
+    ];
+    await specialAnswerPopup(
+      title: mission['title'] as String,
+      missionId: mission['id'] as int,
+      route: '/api/special-survey/submit',
+      content: (submit) => SurveyMissionPopup(
+        description: mission['description'] as String,
+        questions: questions,
+        completed: data['completed'] == true,
+        submit: (answers) async {
+          await submit(answers);
+        },
+      ),
+    );
+  }
+
   Future<void> commemorativeMission(Map<String, dynamic> mission) async {
     final session = backend.token;
     final start = await popup<bool>(
@@ -1244,60 +1273,78 @@ class _FarmGameState extends State<FarmGame>
       if (mounted) setState(() => busy = false);
     }
     if (!mounted || record == null || backend.token != session) return;
+    await specialAnswerPopup(
+      title: '${mission['title']} 퀴즈',
+      missionId: mission['id'] as int,
+      route: '/api/special-quiz/submit',
+      content: (submit) => QuizSetPopup(
+        questions: parseQuizQuestions(quiz['questions']),
+        result: quiz['result'] as Map<String, dynamic>?,
+        claimed: quiz['result'] != null,
+        submitAnswers: (answers) async =>
+            (await submit(answers))['result'] as Map<String, dynamic>,
+      ),
+    );
+  }
+
+  Future<void> specialAnswerPopup({
+    required String title,
+    required int missionId,
+    required String route,
+    required Widget Function(
+      Future<Map<String, dynamic>> Function(List<int>) submit,
+    )
+    content,
+  }) async {
+    final session = backend.token;
     var closed = false;
     var requestPending = false;
     var ownsBusy = false;
     double? rewardBefore;
     await popup<void>(
-      '${mission['title']} 퀴즈',
-      (_, _) => QuizSetPopup(
-        questions: parseQuizQuestions(quiz['questions']),
-        result: quiz['result'] as Map<String, dynamic>?,
-        claimed: quiz['result'] != null,
-        submitAnswers: (answers) async {
+      title,
+      (_, _) => content((answers) async {
+        if (!mounted || record == null || backend.token != session) {
+          throw const ApiException('다시 입장해 주세요.', 401);
+        }
+        requestPending = true;
+        ownsBusy = true;
+        setState(() => busy = true);
+        final before = (r['progress'] as num).toDouble();
+        try {
+          final response = await backend.call('POST', route, {
+            'missionId': missionId,
+            'answers': answers,
+          });
           if (!mounted || record == null || backend.token != session) {
             throw const ApiException('다시 입장해 주세요.', 401);
           }
-          requestPending = true;
-          ownsBusy = true;
-          setState(() => busy = true);
-          final before = (r['progress'] as num).toDouble();
-          try {
-            final response = await backend.call(
-              'POST',
-              '/api/special-quiz/submit',
-              {'missionId': mission['id'], 'answers': answers},
-            );
-            if (!mounted || record == null || backend.token != session) {
-              throw const ApiException('다시 입장해 주세요.', 401);
-            }
-            applyRemoteState(response['state']);
-            if ((r['progress'] as num) > before) {
-              rewardBefore = before;
-              setState(() => pendingMissionProgress = before);
-              // 제출 중 창을 닫아도 서버의 보상은 보존하고 효과를 이어갑니다.
-            }
-            if (closed) {
-              if (rewardBefore != null) {
-                await playMissionReward(rewardBefore!);
-              } else {
-                setState(() => busy = false);
-              }
-            }
-            return response['result'] as Map<String, dynamic>;
-          } catch (_) {
-            if (mounted && backend.token == session) {
-              setState(() {
-                pendingMissionProgress = null;
-                busy = false;
-              });
-            }
-            rethrow;
-          } finally {
-            requestPending = false;
+          applyRemoteState(response['state']);
+          if ((r['progress'] as num) > before) {
+            rewardBefore = before;
+            setState(() => pendingMissionProgress = before);
+            // 제출 중 창을 닫아도 서버의 보상은 보존하고 효과를 이어갑니다.
           }
-        },
-      ),
+          if (closed) {
+            if (rewardBefore != null) {
+              await playMissionReward(rewardBefore!);
+            } else {
+              setState(() => busy = false);
+            }
+          }
+          return response;
+        } catch (_) {
+          if (mounted && backend.token == session) {
+            setState(() {
+              pendingMissionProgress = null;
+              busy = false;
+            });
+          }
+          rethrow;
+        } finally {
+          requestPending = false;
+        }
+      }),
     );
     closed = true;
     if (mounted &&

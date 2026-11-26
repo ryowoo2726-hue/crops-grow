@@ -45,12 +45,18 @@
         <p>적용한 특별미션은 새로 적용하거나 종료할 때까지 유지됩니다.</p>
         <form id="special-form" class="mission-card">
           <label for="special-kind">미션 종류</label>
-          <select id="special-kind"><option value="gratitude">감사 편지 보내기 · 4명 × 25%</option><option value="patriots">순국선열의 날 · 포스터 + 퀴즈 10문제</option><option value="farmers">농업인의 날 · 포스터 + 퀴즈 10문제</option><option value="student-independence">학생독립운동기념일 · 포스터 + 퀴즈 10문제</option><option value="custom">직접 작성한 특별미션 · 30%</option><option value="off">특별미션 종료</option></select>
+          <select id="special-kind"><option value="gratitude">감사 편지 보내기 · 4명 × 25%</option><option value="survey">설문조사 · 8문항 · 성장 +100%</option><option value="patriots">순국선열의 날 · 포스터 + 퀴즈 10문제</option><option value="farmers">농업인의 날 · 포스터 + 퀴즈 10문제</option><option value="student-independence">학생독립운동기념일 · 포스터 + 퀴즈 10문제</option><option value="custom">직접 작성한 특별미션 · 30%</option><option value="off">특별미션 종료</option></select>
           <div id="custom-special" hidden><label for="special-title">미션 제목</label><input id="special-title" maxlength="60"><label for="special-description">미션 내용</label><textarea id="special-description" rows="5" maxlength="600"></textarea></div>
           <p id="special-help">학생의 학년·반·번호 또는 선생님 이름을 골라 10글자 이상의 감사 메시지를 작성합니다. 학생과 선생님을 합해 서로 다른 4명까지 작성하며 한 명당 성장도 25%를 받습니다.</p>
           <button type="submit">선택한 미션 적용</button>
-          <p class="notice">한 번에 한 미션을 운영합니다. 누를 때마다 새 미션이 즉시 적용되며, 감사 편지 4명 제한과 특별 퀴즈 1회 참여가 새로 시작됩니다. 기존 기록은 보관합니다.</p>
+          <p class="notice">한 번에 한 미션을 운영합니다. 적용할 때마다 새 회차가 바로 시작되고 기존 기록은 보관합니다.</p>
         </form>
+        <section id="survey-summary" class="mission-card" aria-labelledby="survey-summary-title" hidden>
+          <h2 id="survey-summary-title">최근 설문 응답</h2>
+          <p id="survey-count" role="status"></p>
+          <button type="button" id="refresh-survey" class="secondary">응답 새로고침</button>
+          <div id="survey-questions"></div>
+        </section>
       </div>
       <div id="messages-panel" class="admin-panel" hidden>
         <div class="page-title"><h1>메시지 전송</h1><button id="refresh-messages" class="secondary">목록 새로고침</button></div>

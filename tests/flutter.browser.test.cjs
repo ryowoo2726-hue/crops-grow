@@ -95,7 +95,7 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     await run("document.querySelector('flt-semantics-placeholder').click()");
     await wait("document.querySelector('flt-semantics-host')?.textContent.includes('시작하기')");
     const clickText = async (text, index = 0) => {
-      const expression = `(() => {const nodes=[...document.querySelectorAll('flt-semantics[role="button"][flt-tappable],flt-semantics[role="tab"][flt-tappable]')].filter(e=>e.getAttribute('aria-disabled')!=='true' && (e.getAttribute('aria-label')||e.textContent).includes(${JSON.stringify(text)})); if(!nodes[${index}]) return null; const r=nodes[${index}].getBoundingClientRect(); return {x:r.x+r.width/2,y:r.y+r.height/2};})()`;
+      const expression = `(() => {const nodes=[...document.querySelectorAll('flt-semantics[role="button"][flt-tappable],flt-semantics[role="tab"][flt-tappable],flt-semantics[role="radio"][flt-tappable]')].filter(e=>e.getAttribute('aria-disabled')!=='true' && (e.getAttribute('aria-label')||e.textContent).includes(${JSON.stringify(text)})); if(!nodes[${index}]) return null; const r=nodes[${index}].getBoundingClientRect(); return {x:r.x+r.width/2,y:r.y+r.height/2};})()`;
       await wait(expression);
       const point = await run(expression);
       await send('Input.dispatchMouseEvent', {type:'mousePressed', ...point, button:'left', clickCount:1});
@@ -564,8 +564,28 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     await wait("document.querySelector('flt-semantics-host')?.textContent.includes('다음 씨앗에 줄 영양분 +100%')");
     assert.equal(app.store.snapshot(1).pendingGrowth,100);
     assert.equal(quizClaims.length,claimsBeforeClose+1);
+    const surveyMission=app.store.specialMissions.activate({kind:'survey',requestId:'browser-survey-round'});
+    const {surveyQuestions}=app.store.specialMissions.survey(1,surveyMission.id);
+    await clickText('미션');await clickText('특별 미션');await clickText('설문 시작');
+    for(const [index,question] of surveyQuestions.entries()){
+      await clickText(question.choices[0]);
+      if(index===3){
+        const questionShot=await send('Page.captureScreenshot');
+        fs.writeFileSync(path.join(os.tmpdir(),'growgame-survey-web-question.png'),Buffer.from(questionShot.data,'base64'));
+      }
+      await clickText(index===surveyQuestions.length-1?'설문 제출':'다음');
+    }
+    await wait(hasSemanticsText('설문 참여 완료!'));
+    assert.deepEqual(JSON.parse(app.store.db.prepare('SELECT answers_json FROM survey_responses WHERE campaign_id=? AND player_id=1').get(surveyMission.id).answers_json),Array(8).fill(0));
+    assert.equal(app.store.snapshot(1).pendingGrowth,200);
+    await clickText('내 밭으로');
+    await clickText('미션');await clickText('특별 미션');
+    await wait(hasSemanticsText('설문 참여 완료!'));
+    assert.equal(app.store.snapshot(1).pendingGrowth,200);
+    const completedShot=await send('Page.captureScreenshot');
+    fs.writeFileSync(path.join(os.tmpdir(),'growgame-survey-web-complete.png'),Buffer.from(completedShot.data,'base64'));
     assert.equal(errors.length, 0, JSON.stringify(errors));
-    console.log('Flutter Chrome 통과: 명단·교사·퀴즈·성장·수확·랭킹·복구·학생/교사 메시지 전송·읽음 알림·기념일 3종 영양분 효과·제출 중 닫기·3가지 화면');
+    console.log('Flutter Chrome 통과: 명단·교사·퀴즈·성장·수확·랭킹·복구·학생/교사 메시지 전송·읽음 알림·기념일 3종 영양분 효과·설문 응답 저장·제출 중 닫기·3가지 화면');
   } finally {
     socket?.close(); proc.kill();
     if(app.server.listening) await stopApi();

@@ -44,7 +44,7 @@ function createAdmin(store,{credentials,now,traffic}) {
     authenticate(token);
     if (route==='/api/admin/traffic' && method==='GET') { reply(200,traffic.snapshot()); return; }
     if (route==='/api/admin/special' && method==='GET') {
-      reply(200,{mission:store.special()}); return;
+      reply(200,{mission:store.special(),survey:store.specialMissions.surveySummary()}); return;
     }
     if (route==='/api/admin/special' && method==='POST') {
       reply(200,{mission:store.specialMissions.activate(input)}); return;

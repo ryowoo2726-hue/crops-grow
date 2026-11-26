@@ -26,7 +26,7 @@ function openStore(directory, {now = Date.now, dailyLimit = false} = {}) {
   const db = new DatabaseSync(path.join(directory, 'growgame.sqlite'));
   db.exec('PRAGMA busy_timeout=3000');
   const version = db.prepare('PRAGMA user_version').get().user_version;
-  if (version > 15) { db.close(); throw Error('이 서버보다 새로운 DB입니다. 서버를 업데이트하세요.'); }
+  if (version > 16) { db.close(); throw Error('이 서버보다 새로운 DB입니다. 서버를 업데이트하세요.'); }
   const schema = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8');
   const oldColumns = db.prepare('PRAGMA table_info(players)').all().map(column => column.name);
   if (oldColumns.length && !oldColumns.includes('role')) {
@@ -46,16 +46,20 @@ function openStore(directory, {now = Date.now, dailyLimit = false} = {}) {
     } catch (error) { db.exec('ROLLBACK'); db.close(); throw error; }
     db.exec('PRAGMA foreign_keys=ON');
   }
-  const campaignColumns = db.prepare('PRAGMA table_info(special_campaigns)').all().map(column => column.name);
-  if (campaignColumns.length && version < 8) {
-    // 기존 감사 메시지와 퀴즈 결과의 campaign_id를 유지합니다.
+  const campaignDefinition = db.prepare("SELECT sql FROM sqlite_schema WHERE type='table' AND name='special_campaigns'");
+  const needsCampaignUpgrade = sql => !sql.includes("'survey'") || !sql.includes("'student-independence'");
+  const campaign = campaignDefinition.get();
+  if (campaign && needsCampaignUpgrade(campaign.sql)) {
+    // 기존 감사 편지·특별 퀴즈의 회차 ID를 보존하면서 설문 종류를 추가합니다.
     db.exec('PRAGMA foreign_keys=OFF; BEGIN IMMEDIATE');
     try {
-      const campaignSchema = schema.match(/CREATE TABLE IF NOT EXISTS special_campaigns \([\s\S]*?\) STRICT;/)[0];
-      db.exec(campaignSchema.replace('special_campaigns (', 'special_campaigns_v8 ('));
-      const columns = db.prepare('PRAGMA table_info(special_campaigns)').all().map(column => column.name).join(',');
-      db.exec(`INSERT INTO special_campaigns_v8(${columns}) SELECT ${columns} FROM special_campaigns;
-        DROP TABLE special_campaigns; ALTER TABLE special_campaigns_v8 RENAME TO special_campaigns;`);
+      if (needsCampaignUpgrade(campaignDefinition.get().sql)) {
+        const campaignSchema = schema.match(/CREATE TABLE IF NOT EXISTS special_campaigns \([\s\S]*?\) STRICT;/)[0];
+        db.exec(campaignSchema.replace('special_campaigns (', 'special_campaigns_v16 ('));
+        const columns = db.prepare('PRAGMA table_info(special_campaigns)').all().map(column => column.name).join(',');
+        db.exec(`INSERT INTO special_campaigns_v16(${columns}) SELECT ${columns} FROM special_campaigns;
+          DROP TABLE special_campaigns; ALTER TABLE special_campaigns_v16 RENAME TO special_campaigns;`);
+      }
       if (db.prepare('PRAGMA foreign_key_check').all().length) throw Error('DB 연결 기록을 확인하세요.');
       db.exec('COMMIT');
     } catch (error) { db.exec('ROLLBACK'); db.close(); throw error; }
@@ -121,6 +125,7 @@ function openStore(directory, {now = Date.now, dailyLimit = false} = {}) {
         PRAGMA user_version=15; COMMIT`);
     } catch (error) { db.exec('ROLLBACK'); db.close(); throw error; }
   }
+  if (version < 16) db.exec('PRAGMA user_version=16');
   const quizBank = require('./quiz-bank.cjs').createQuizBank(db, {now, dayAt:quizDayAt, fail});
   const specialMissions = require('./special-missions.cjs').createSpecialMissions(db, {now,fail,profileOf:participantProfile});
   db.prepare('DELETE FROM sessions WHERE expires_at < ?').run(now());
@@ -308,7 +313,7 @@ function openStore(directory, {now = Date.now, dailyLimit = false} = {}) {
   }
   const special = () => specialMissions.current(db.prepare('SELECT week,title,description,revision FROM special_missions ORDER BY rowid DESC LIMIT 1').get() || null);
   const specialCompletionKey = mission => mission.id != null ? `campaign:${mission.id}` : `legacy:${mission.week}:${mission.revision}`;
-  const specialCompleted = (playerId, mission) => !!mission && !mission.poster && mission.kind!=='gratitude' &&
+  const specialCompleted = (playerId, mission) => !!mission && (mission.kind==null || mission.kind==='custom') &&
     !!db.prepare('SELECT 1 FROM special_completions WHERE player_id=? AND mission_key=?').get(playerId,specialCompletionKey(mission));
   function action(playerId, input) {
     if (typeof input.requestId !== 'string' || !/^[a-zA-Z0-9_-]{16,100}$/.test(input.requestId)) fail(400,'요청 번호가 올바르지 않아요.');
@@ -356,6 +361,7 @@ function openStore(directory, {now = Date.now, dailyLimit = false} = {}) {
           if (!mission || mission.revision!==input.missionRevision) fail(409,'특별 미션이 변경되었어요. 다시 확인해 주세요.');
           if (mission.id != null && mission.id !== input.missionId) fail(409,'특별 미션이 변경되었어요. 다시 확인해 주세요.');
           if (mission.kind==='gratitude') fail(409,'감사의 말을 작성해 미션에 참여해 주세요.');
+          if (mission.kind==='survey') fail(409,'설문 문항에 모두 답하고 제출해 주세요.');
           if (mission.poster) fail(409,'포스터를 읽고 특별 퀴즈에 참여해 주세요.');
           const completed = db.prepare('INSERT OR IGNORE INTO special_completions(player_id,mission_key) VALUES(?,?)')
             .run(playerId,specialCompletionKey(mission));

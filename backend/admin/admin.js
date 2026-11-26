@@ -27,7 +27,7 @@ setInterval(()=>{if(!document.hidden)checkBackend();},15000);
 checkBackend();
 const crops={'rice':'벼','sweet-potato':'고구마','soybean':'콩','radish':'무','napa-cabbage':'배추','apple':'사과','persimmon':'감','peach':'복숭아','watermelon':'수박','chili-pepper':'고추','mango':'망고'};
 let token='',students=[],selected=null,deleting=null,sessionTimer;
-let messagePage=0,messagePages=1,messageRequest=0,recipientRequest=0,composeAttempt=null,activationRequest=null;
+let messagePage=0,messagePages=1,messageRequest=0,recipientRequest=0,composeAttempt=null,activationRequest=null,specialRequest=0;
 let sentMessagePage=0,sentMessageRequest=0;
 let messageStudents=[];
 let reviewRows=[],reviewSending=false;
@@ -147,14 +147,27 @@ for(const button of document.querySelectorAll('[data-panel]')) {
 function showError(error){$('message').textContent=error.message;}
 function participantLabel(profile){return profile.role==='teacher'?`${profile.name} 선생님`:`${profile.grade}학년 ${profile.classNo}반 ${profile.number}번 ${profile.name||''}`.trim();}
 async function loadSpecial(){
-  const session=token,data=await api('special');
-  if(!token||token!==session)return;
+  const session=token,request=++specialRequest,data=await api('special');
+  if(!token||token!==session||request!==specialRequest)return;
   $('active-special').textContent=data.mission?`현재 적용 중 · ${data.mission.title}${data.mission.id?' · 미션 '+data.mission.id:''}`:'현재 적용된 특별미션이 없습니다.';
+  $('survey-summary').hidden=!data.survey;
+  const survey=data.survey;
+  $('survey-count').textContent=survey?`미션 ${survey.missionId} · ${survey.count}명 제출`:'';
+  $('survey-questions').replaceChildren(...(survey?.questions??[]).map(({question,choices},index)=>{
+    const details=document.createElement('details');
+    const heading=document.createElement('summary');heading.textContent=`${index+1}. ${question}`;
+    const list=document.createElement('ul');
+    for(const {label,count} of choices){
+      const option=document.createElement('li');option.textContent=`${label} · ${count}명`;list.append(option);
+    }
+    details.append(heading,list);return details;
+  }));
 }
+$('refresh-survey').onclick=()=>loadSpecial().catch(showError);
 $('special-kind').onchange=()=>{
   activationRequest=null;
   $('custom-special').hidden=$('special-kind').value!=='custom';
-  $('special-help').textContent={gratitude:'학생의 학년·반·번호 또는 선생님 이름을 골라 10글자 이상의 감사 메시지를 작성합니다. 서로 다른 4명까지 작성하며 한 명당 성장도 25%를 받습니다. 등록 안 된 선생님에게 쓴 글은 해당 이름으로 참여한 뒤 전송할 수 있습니다.',patriots:'11월 17일 순국선열의 날 포스터를 읽고 10문제를 풉니다. 정답당 10%, 최대 100%를 한 번 지급하며 남은 영양분은 다음 작물로 이어집니다.',farmers:'11월 11일 농업인의 날 포스터를 읽고 10문제를 풉니다. 정답당 10%, 최대 100%를 한 번 지급하며 남은 영양분은 다음 작물로 이어집니다.','student-independence':'11월 3일 학생독립운동기념일 포스터를 읽고 10문제를 풉니다. 정답당 10%, 최대 100%를 한 번 지급하며 남은 영양분은 다음 작물로 이어집니다.',custom:'제목과 내용을 입력하면 학생에게 바로 표시됩니다. 완료한 학생에게 성장도 30%를 지급합니다.',off:'적용하면 학생의 특별미션이 종료됩니다.'}[$('special-kind').value];
+  $('special-help').textContent={gratitude:'학생의 학년·반·번호 또는 선생님 이름을 골라 10글자 이상의 감사 메시지를 작성합니다. 서로 다른 4명까지 작성하며 한 명당 성장도 25%를 받습니다. 선생님께 쓴 편지의 실제 수신자는 관리자가 선택합니다.',survey:'8문항 모두 응답한 뒤 제출하면 회차당 한 번 성장 +100%를 받습니다. 응답은 서버에 저장하고 남은 영양분은 다음 작물로 이어집니다.',patriots:'11월 17일 순국선열의 날 포스터를 읽고 10문제를 풉니다. 정답당 10%, 최대 100%를 한 번 지급하며 남은 영양분은 다음 작물로 이어집니다.',farmers:'11월 11일 농업인의 날 포스터를 읽고 10문제를 풉니다. 정답당 10%, 최대 100%를 한 번 지급하며 남은 영양분은 다음 작물로 이어집니다.','student-independence':'11월 3일 학생독립운동기념일 포스터를 읽고 10문제를 풉니다. 정답당 10%, 최대 100%를 한 번 지급하며 남은 영양분은 다음 작물로 이어집니다.',custom:'제목과 내용을 입력하면 학생에게 바로 표시됩니다. 완료한 학생에게 성장도 30%를 지급합니다.',off:'적용하면 학생의 특별미션이 종료됩니다.'}[$('special-kind').value];
 };
 for(const id of ['special-title','special-description'])$(id).oninput=()=>{activationRequest=null;};
 $('special-form').onsubmit=async event=>{

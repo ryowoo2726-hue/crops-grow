@@ -100,6 +100,9 @@ function createBackend({directory,origins=['http://localhost:4174','http://127.0
       }
       if (req.method==='GET' && url.pathname==='/api/special-mission') {
         const mission = store.special();
+        if (mission?.kind==='survey') {
+          reply(200,{mission,...store.specialMissions.survey(playerId,mission.id)}); return;
+        }
         reply(200,{mission,completed:store.specialCompleted(playerId,mission),...store.specialMissions.status(playerId,mission?.id),classes:store.loginOptions().classes}); return;
       }
       if (req.method==='GET' && url.pathname==='/api/special-quiz') {
@@ -107,6 +110,9 @@ function createBackend({directory,origins=['http://localhost:4174','http://127.0
       }
       if (req.method==='POST' && url.pathname==='/api/special-quiz/submit') {
         reply(200,{...store.specialMissions.submitQuiz(playerId,input),state:store.snapshot(playerId)}); return;
+      }
+      if (req.method==='POST' && url.pathname==='/api/special-survey/submit') {
+        reply(200,{...store.specialMissions.submitSurvey(playerId,input),state:store.snapshot(playerId)}); return;
       }
       if (req.method==='POST' && url.pathname==='/api/gratitude') {
         const result=store.specialMissions.submit(playerId,input);

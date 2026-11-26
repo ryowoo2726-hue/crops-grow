@@ -73,7 +73,7 @@ CREATE INDEX IF NOT EXISTS quiz_runs_pending_growth ON quiz_runs(player_id) WHER
 CREATE TABLE IF NOT EXISTS special_campaigns (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   request_id TEXT NOT NULL UNIQUE,
-  kind TEXT NOT NULL CHECK(kind IN ('gratitude','patriots','farmers','student-independence','custom','off')),
+  kind TEXT NOT NULL CHECK(kind IN ('gratitude','patriots','farmers','student-independence','custom','survey','off')),
   title TEXT NOT NULL, description TEXT NOT NULL, created_at TEXT NOT NULL,
   content_json TEXT
 ) STRICT;
@@ -115,6 +115,15 @@ CREATE TABLE IF NOT EXISTS special_quiz_results (
   PRIMARY KEY(campaign_id,player_id)
 ) STRICT;
 CREATE INDEX IF NOT EXISTS special_quiz_pending_growth ON special_quiz_results(player_id) WHERE reward_remaining>0;
+CREATE TABLE IF NOT EXISTS survey_responses (
+  campaign_id INTEGER NOT NULL REFERENCES special_campaigns(id),
+  player_id INTEGER NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+  answers_json TEXT NOT NULL,
+  reward_remaining INTEGER NOT NULL CHECK(reward_remaining BETWEEN 0 AND 100),
+  created_at TEXT NOT NULL,
+  PRIMARY KEY(campaign_id,player_id)
+) STRICT;
+CREATE INDEX IF NOT EXISTS survey_pending_growth ON survey_responses(player_id) WHERE reward_remaining>0;
 CREATE TABLE IF NOT EXISTS special_completions (
   player_id INTEGER NOT NULL REFERENCES players(id) ON DELETE CASCADE,
   mission_key TEXT NOT NULL,

@@ -1,9 +1,16 @@
 const crypto = require('node:crypto');
 const commemorations = require('./commemorative-missions.cjs');
+const surveyPreset = require('./survey.json');
 const segmenter = new Intl.Segmenter('ko', {granularity:'grapheme'});
 const gratitudeTitle = '감사의 말 전하기';
 const gratitudeDescription = '고마운 학생의 학년·반·번호 또는 선생님의 이름을 골라 감사의 말을 10글자 이상 작성해 주세요. 서로 다른 4명까지, 한 명당 성장도 25%를 받아요. 관리자가 확인한 뒤 메시지를 전달해요.';
-const missionKinds = new Set(['gratitude','custom','off',...Object.keys(commemorations)]);
+const missionKinds = new Set(['gratitude','custom','survey','off',...Object.keys(commemorations)]);
+const rewardSources = [
+  ['gratitude_messages','id','created_at,id'],
+  ['special_quiz_results','campaign_id','created_at,campaign_id'],
+  ['quiz_runs','id','id'],
+  ['survey_responses','campaign_id','created_at,campaign_id'],
+];
 
 function createSpecialMissions(db, {now, fail, profileOf}) {
   const latest = () => db.prepare('SELECT * FROM special_campaigns ORDER BY id DESC LIMIT 1').get();
@@ -13,14 +20,14 @@ function createSpecialMissions(db, {now, fail, profileOf}) {
     if (selected.kind === 'off') return null;
     const content = selected.content_json ? JSON.parse(selected.content_json) : null;
     return {id:selected.id,kind:selected.kind,title:selected.title,description:selected.description,revision:selected.id,
-      ...(content ? {poster:content.poster} : {})};
+      ...(content?.poster ? {poster:content.poster} : {})};
   }
   function activate(input) {
     if (!missionKinds.has(input.kind) || typeof input.requestId !== 'string' ||
         !/^[a-zA-Z0-9_-]{16,100}$/.test(input.requestId)) fail(400,'미션 종류와 요청 번호를 확인하세요.');
     if ((input.title != null && typeof input.title !== 'string') || (input.description != null && typeof input.description !== 'string'))
       fail(400,'미션 제목과 내용을 확인하세요.');
-    const preset = commemorations[input.kind];
+    const preset = input.kind === 'survey' ? surveyPreset : commemorations[input.kind];
     const title = preset?.title ?? (input.kind === 'gratitude' ? gratitudeTitle : (input.title ?? '').trim());
     const description = preset?.description ?? (input.kind === 'gratitude' ? gratitudeDescription : (input.description ?? '').trim());
     if (input.kind === 'custom' && (!title || title.length > 60 || !description || description.length > 600))
@@ -33,7 +40,7 @@ function createSpecialMissions(db, {now, fail, profileOf}) {
     return current();
   }
   function pendingGrowth(playerId) {
-    return ['gratitude_messages','special_quiz_results','quiz_runs'].reduce((total,table) =>
+    return rewardSources.reduce((total,[table]) =>
       total + db.prepare(`SELECT COALESCE(SUM(reward_remaining),0) growth FROM ${table} WHERE player_id=? AND reward_remaining>0`).get(playerId).growth,0);
   }
   // 남은 영양분은 다음 작물을 심을 때 이어서 지급합니다.
@@ -41,7 +48,7 @@ function createSpecialMissions(db, {now, fail, profileOf}) {
     const player = db.prepare('SELECT crop_id,progress FROM players WHERE id=?').get(playerId);
     let capacity = player.crop_id ? 100 - player.progress : 0;
     let growth = 0;
-    for (const [table,key,order] of [['gratitude_messages','id','created_at,id'],['special_quiz_results','campaign_id','created_at,campaign_id'],['quiz_runs','id','id']]) {
+    for (const [table,key,order] of rewardSources) {
       if (!capacity) break;
       const pending = db.prepare(`SELECT ${key} id,reward_remaining FROM ${table} WHERE player_id=? AND reward_remaining>0 ORDER BY ${order}`).all(playerId);
       for (const message of pending) {
@@ -63,7 +70,8 @@ function createSpecialMissions(db, {now, fail, profileOf}) {
   function quiz(playerId, missionId) {
     if (!Number.isSafeInteger(missionId)) fail(400,'미션 번호를 확인해 주세요.');
     const mission = latest();
-    if (!mission || mission.id !== missionId || !mission.content_json) fail(409,'특별 미션이 바뀌었어요. 다시 열어 주세요.');
+    if (!mission || mission.id !== missionId || !Object.hasOwn(commemorations,mission.kind) || !mission.content_json)
+      fail(409,'특별 미션이 바뀌었어요. 다시 열어 주세요.');
     const content = JSON.parse(mission.content_json);
     const saved = db.prepare('SELECT result_json FROM special_quiz_results WHERE campaign_id=? AND player_id=?').get(missionId,playerId);
     return {questions:content.questions.map((q,id)=>({id,question:q.question,choices:q.choices})),
@@ -88,6 +96,45 @@ function createSpecialMissions(db, {now, fail, profileOf}) {
       db.exec('COMMIT');
       return {result};
     } catch (error) { db.exec('ROLLBACK'); throw error; }
+  }
+  const savedSurvey = db.prepare('SELECT answers_json FROM survey_responses WHERE campaign_id=? AND player_id=?');
+  function survey(playerId, missionId) {
+    const mission = latest();
+    if (mission?.kind !== 'survey' || mission.id !== missionId) fail(409,'특별 미션이 바뀌었어요. 다시 열어 주세요.');
+    return {surveyQuestions:JSON.parse(mission.content_json).questions,completed:!!savedSurvey.get(missionId,playerId)};
+  }
+  function submitSurvey(playerId, {missionId,answers}) {
+    if (!Number.isSafeInteger(missionId) || !Array.isArray(answers)) fail(400,'설문 문항에 모두 답해 주세요.');
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      const saved = savedSurvey.get(missionId,playerId);
+      if (saved) {
+        if (saved.answers_json !== JSON.stringify(answers)) fail(409,'이번 설문은 이미 제출했어요.');
+        db.exec('COMMIT');
+        return {completed:true};
+      }
+      const questions = survey(playerId,missionId).surveyQuestions;
+      if (answers.length !== questions.length ||
+          answers.some((answer,i)=>!Number.isInteger(answer) || answer < 0 || answer >= questions[i].choices.length))
+        fail(400,'설문 문항에 모두 답해 주세요.');
+      db.prepare('INSERT INTO survey_responses(campaign_id,player_id,answers_json,reward_remaining,created_at) VALUES(?,?,?,?,?)')
+        .run(missionId,playerId,JSON.stringify(answers),100,new Date(now()).toISOString());
+      claimGrowth(playerId);
+      db.exec('COMMIT');
+      return {completed:true};
+    } catch (error) { db.exec('ROLLBACK'); throw error; }
+  }
+  function surveySummary() {
+    const mission = db.prepare("SELECT id,content_json FROM special_campaigns WHERE kind='survey' ORDER BY id DESC LIMIT 1").get();
+    if (!mission) return null;
+    const questions = JSON.parse(mission.content_json).questions.map(({question,choices})=>({
+      question,choices:choices.map(label=>({label,count:0})),
+    }));
+    const rows = db.prepare(`SELECT a.key question,a.value choice,COUNT(*) count
+      FROM survey_responses s,json_each(s.answers_json) a WHERE s.campaign_id=? GROUP BY a.key,a.value`).all(mission.id);
+    for (const row of rows) questions[row.question].choices[row.choice].count = row.count;
+    const count = db.prepare('SELECT COUNT(*) count FROM survey_responses WHERE campaign_id=?').get(mission.id).count;
+    return {missionId:mission.id,count,questions};
   }
   function submit(playerId, input) {
     const recipient = input.recipient;
@@ -346,6 +393,6 @@ function createSpecialMissions(db, {now, fail, profileOf}) {
       });
     return {items,page,pages,total};
   }
-  return {current,activate,status,submit,inbox,review,deliver,deliverBatch,sendAdminMessage,sentAdminMessages,claimGrowth,pendingGrowth,quiz,submitQuiz,unreadCount,markRead,deleteFromInbox};
+  return {current,activate,status,submit,inbox,review,deliver,deliverBatch,sendAdminMessage,sentAdminMessages,claimGrowth,pendingGrowth,quiz,submitQuiz,survey,submitSurvey,surveySummary,unreadCount,markRead,deleteFromInbox};
 }
 module.exports = {createSpecialMissions};
