@@ -26,7 +26,7 @@ function openStore(directory, {now = Date.now, dailyLimit = false} = {}) {
   const db = new DatabaseSync(path.join(directory, 'growgame.sqlite'));
   db.exec('PRAGMA busy_timeout=3000');
   const version = db.prepare('PRAGMA user_version').get().user_version;
-  if (version > 16) { db.close(); throw Error('이 서버보다 새로운 DB입니다. 서버를 업데이트하세요.'); }
+  if (version > 17) { db.close(); throw Error('이 서버보다 새로운 DB입니다. 서버를 업데이트하세요.'); }
   const schema = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8');
   const oldColumns = db.prepare('PRAGMA table_info(players)').all().map(column => column.name);
   if (oldColumns.length && !oldColumns.includes('role')) {
@@ -125,7 +125,7 @@ function openStore(directory, {now = Date.now, dailyLimit = false} = {}) {
         PRAGMA user_version=15; COMMIT`);
     } catch (error) { db.exec('ROLLBACK'); db.close(); throw error; }
   }
-  if (version < 16) db.exec('PRAGMA user_version=16');
+  if (version < 17) db.exec('PRAGMA user_version=17');
   const quizBank = require('./quiz-bank.cjs').createQuizBank(db, {now, dayAt:quizDayAt, fail});
   const specialMissions = require('./special-missions.cjs').createSpecialMissions(db, {now,fail,profileOf:participantProfile});
   db.prepare('DELETE FROM sessions WHERE expires_at < ?').run(now());

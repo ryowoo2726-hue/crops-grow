@@ -145,7 +145,8 @@ for(const button of document.querySelectorAll('[data-panel]')) {
   };
 }
 function showError(error){$('message').textContent=error.message;}
-function participantLabel(profile){return profile.role==='teacher'?`${profile.name} 선생님`:`${profile.grade}학년 ${profile.classNo}반 ${profile.number}번 ${profile.name||''}`.trim();}
+function classLabel({grade,classNo}){return `${grade}학년 ${classNo}반`;}
+function participantLabel(profile){return profile.role==='teacher'?`${profile.name} 선생님`:`${classLabel(profile)} ${profile.number}번 ${profile.name||''}`.trim();}
 async function loadSpecial(){
   const session=token,request=++specialRequest,data=await api('special');
   if(!token||token!==session||request!==specialRequest)return;
@@ -191,6 +192,8 @@ async function loadMessageRecipients(){
   $('compose-message').hidden=false;
   messageStudents=recipients.filter(person=>person.role==='student');
   renderMessageStudents();
+  for(const row of reviewRows)row.studentPicker?.render();
+  syncReviewSelection();
   $('message-teacher-names').replaceChildren(...recipients.filter(person=>person.role==='teacher').map(person=>new Option(person.name,person.name)));
   help.textContent='아직 참여하지 않은 학생과 선생님은 게임에 등록한 뒤 메시지를 볼 수 있습니다.';
 }
@@ -269,7 +272,57 @@ async function loadSentMessages(page){
   $('next-sent-messages').disabled=sentMessagePage+1===data.pages;
 }
 function reviewTeacherNames(row){return row.teacherChoices?.filter(choice=>choice.checked).map(choice=>choice.value);}
-function reviewReady(row){return !row.teacherChoices||row.teacherChoices.some(choice=>choice.checked);}
+function studentTargetLabel(target){
+  return target.role==='class'?`${classLabel(target)} 전체`:participantLabel(target);
+}
+function reviewStudentPicker(sender,checkbox){
+  const element=$('review-student-picker').content.firstElementChild.cloneNode(true);
+  const summary=element.querySelector('summary');
+  const classSelect=element.querySelector('[name="class"]'),studentSelect=element.querySelector('[name="student"]');
+  let groups;
+  function selection(){
+    if(!studentSelect.value)return undefined;
+    const [grade,classNo]=classSelect.value.split('/').map(Number);
+    return studentSelect.value==='class'?{role:'class',grade,classNo}:
+      {role:'student',grade,classNo,number:Number(studentSelect.value)};
+  }
+  function updateStudents(previous=''){
+    const people=groups.get(classSelect.value)??[];
+    const rosterSize=people.filter(person=>person.onRoster).length;
+    studentSelect.replaceChildren(studentSelect.firstElementChild);
+    if(rosterSize)studentSelect.add(new Option(`${classLabel(people[0])} 전체 · ${rosterSize}명`,'class'));
+    for(const person of people)studentSelect.add(new Option(`${person.number}번 ${person.name||''}`.trim(),String(person.number)));
+    studentSelect.value=previous;
+    if(studentSelect.selectedIndex<0)studentSelect.selectedIndex=0;
+    studentSelect.disabled=reviewSending||!people.length;
+    summary.textContent=studentSelect.value?studentSelect.selectedOptions[0].textContent:'받는 학생·학급 선택';
+  }
+  function render(){
+    groups=new Map();
+    for(const person of messageStudents){
+      const {grade,classNo,number}=person;
+      if(sender.role==='student'&&sender.grade===grade&&sender.classNo===classNo&&sender.number===number)continue;
+      const key=`${grade}/${classNo}`;
+      if(!groups.has(key))groups.set(key,[]);
+      groups.get(key).push(person);
+    }
+    const previousClass=classSelect.value,previousStudent=studentSelect.value;
+    classSelect.replaceChildren(classSelect.firstElementChild);
+    for(const [key,people] of groups)classSelect.add(new Option(classLabel(people[0]),key));
+    classSelect.value=previousClass;
+    if(classSelect.selectedIndex<0)classSelect.selectedIndex=0;
+    updateStudents(previousStudent);
+    if(studentSelect.value!==previousStudent)checkbox.checked=false;
+  }
+  classSelect.onchange=()=>{updateStudents();checkbox.checked=false;syncReviewSelection();};
+  studentSelect.onchange=()=>{updateStudents(studentSelect.value);checkbox.checked=false;syncReviewSelection();};
+  render();
+  return {element,render,selection,disable(busy){
+    classSelect.disabled=busy||!groups.size;
+    studentSelect.disabled=busy||!classSelect.value;
+  }};
+}
+function reviewReady(row){return !row.teacherChoices||row.teacherChoices.some(choice=>choice.checked)||!!row.studentPicker?.selection();}
 function selectedReviewRows(){return reviewRows.filter(row=>row.checkbox.checked&&reviewReady(row));}
 function syncReviewSelection(){
   const ready=reviewRows.filter(reviewReady).length,chosen=selectedReviewRows().length;
@@ -284,13 +337,20 @@ function syncReviewSelection(){
   for(const row of reviewRows){
     row.checkbox.disabled=row.send.disabled=reviewSending||!reviewReady(row);
     for(const choice of row.teacherChoices??[])choice.disabled=reviewSending;
+    row.studentPicker?.disable(reviewSending);
   }
 }
 async function sendReviewed(rows,bulk){
   if(reviewSending||!rows.length)return;
   const session=token,feedback=bulk?$('review-bulk-feedback'):rows[0].feedback;
-  const messages=rows.map(row=>({id:row.id,teacherNames:reviewTeacherNames(row)}));
-  if(bulk&&!confirm(`선택한 감사 편지 ${messages.length}건을 전송할까요?`))return;
+  const messages=rows.map(row=>({id:row.id,teacherNames:reviewTeacherNames(row),studentTarget:row.studentPicker?.selection()}));
+  const classes=[...new Set(messages.filter(message=>message.studentTarget?.role==='class')
+    .map(message=>studentTargetLabel(message.studentTarget)))];
+  if(bulk||classes.length){
+    const prompt=bulk?`선택한 감사 편지 ${messages.length}건을 전송할까요?`:'이 감사 편지를 전송할까요?';
+    const targets=classes.length?`\n받는 학급 · ${classes.join(', ')}`:'';
+    if(!confirm(prompt+targets))return;
+  }
   reviewSending=true;feedback.textContent='';feedback.removeAttribute('data-success');syncReviewSelection();
   if(!bulk){rows[0].send.textContent='전송 중…';rows[0].send.setAttribute('aria-busy','true');}
   let sent=false;
@@ -299,8 +359,7 @@ async function sendReviewed(rows,bulk){
     if(!token||token!==session)return;
     sent=true;
     await loadMessages(messagePage);
-    const text=bulk?`감사 편지 ${messages.length}건을 전송했습니다.`:
-      messages[0].teacherNames?`선생님 ${messages[0].teacherNames.length}명에게 편지를 전송했습니다.`:'받는 사람에게 메시지를 전송했습니다.';
+    const text=bulk?`감사 편지 ${messages.length}건을 전송했습니다.`:'선택한 수신자에게 감사 편지를 전송했습니다.';
     $('message').textContent=text;
     if(bulk){feedback.textContent=text;feedback.setAttribute('data-success','');}
   }catch(error){
@@ -328,7 +387,13 @@ async function loadMessages(page){
     const teacher=item.recipient.role==='teacher';
     const title=document.createElement('h2');
     const sender=participantLabel(item.sender);
-    const recipients=teacher?(item.deliveryTeacherNames??[item.recipient.name]).map(name=>`${name} 선생님`).join(', '):participantLabel(item.recipient);
+    const actualRecipients=(item.deliveryTeacherNames??[]).map(name=>`${name} 선생님`);
+    if(item.deliveryStudentTarget){
+      const target=item.deliveryStudentTarget;
+      const count=target.role==='class'?` (${target.count}명)`:'';
+      actualRecipients.push(studentTargetLabel(target)+count);
+    }
+    const recipients=teacher&&actualRecipients.length?actualRecipients.join(', '):participantLabel(item.recipient);
     title.textContent=teacher&&!item.deliveredAt ? sender : sender+' → '+recipients;
     const date=document.createElement('p');date.textContent=new Date(item.createdAt).toLocaleString('ko-KR',{timeZone:'Asia/Seoul'})+' · 미션 '+item.missionId;
     const body=document.createElement('p');body.className='message-body';body.textContent=item.body;
@@ -342,7 +407,7 @@ async function loadMessages(page){
     card.append(body);
     const actions=document.createElement('div');actions.className='message-actions';
     const send=document.createElement('button');send.textContent=item.deliveredAt?'전송 완료':'전송';send.disabled=!!item.deliveredAt||teacher;
-    let teacherChoices;
+    let teacherChoices,studentPicker;
     const checkbox=document.createElement('input');checkbox.type='checkbox';
     if(teacher&&!item.deliveredAt){
       const names=(data.teachers??[]).filter(name=>item.sender.role!=='teacher'||item.sender.name!==name);
@@ -363,6 +428,8 @@ async function loadMessages(page){
       });
       if(!names.length)list.textContent='선생님이 게임에 참여한 뒤 목록을 새로고침하세요.';
       picker.append(summary,list);actions.append(picker);
+      studentPicker=reviewStudentPicker(item.sender,checkbox);
+      actions.append(studentPicker.element);
     }
     actions.append(send);card.append(actions);$('review-messages').append(card);
     if(item.deliveredAt)continue;
@@ -370,7 +437,7 @@ async function loadMessages(page){
     const choice=document.createElement('label');choice.className='review-check';
     checkbox.setAttribute('aria-label',`${title.textContent} 감사 편지 선택`);
     choice.append(checkbox,'이 편지 선택');actions.append(choice);
-    const row={id:item.id,checkbox,teacherChoices,send,feedback};reviewRows.push(row);
+    const row={id:item.id,checkbox,teacherChoices,studentPicker,send,feedback};reviewRows.push(row);
     checkbox.onchange=syncReviewSelection;
     send.onclick=()=>sendReviewed([row],false);
   }

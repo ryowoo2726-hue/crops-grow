@@ -90,7 +90,7 @@
           <div id="sent-message-pages" class="message-pages" hidden><button id="previous-sent-messages" class="secondary" aria-label="보낸 메시지 이전 페이지">이전</button><span id="sent-message-page">1 / 1</span><button id="next-sent-messages" class="secondary" aria-label="보낸 메시지 다음 페이지">다음</button></div>
         </section>
         <h2>감사 편지 검토</h2>
-        <p>감사 편지를 확인하고 전송할 편지를 체크하세요. 선생님께 보낼 편지는 받으실 선생님을 한 명 이상 선택할 수 있습니다.</p>
+        <p>감사 편지를 확인하고 전송할 편지를 체크하세요. 선생님께 쓴 편지는 받는 선생님, 학생 또는 학급 전체를 선택할 수 있습니다.</p>
         <div class="message-toolbar"><label for="message-status">전송 상태</label><select id="message-status"><option value="pending">전송 대기</option><option value="sent">전송 완료</option><option value="all">전체</option></select></div>
         <div id="review-bulk" class="message-toolbar" hidden>
           <label class="review-check"><input type="checkbox" id="select-review-page">이 페이지의 전송 가능한 편지 전체 선택</label>
@@ -98,6 +98,15 @@
         </div>
         <p id="review-bulk-feedback" class="review-feedback" role="status"></p>
         <div id="review-messages"></div>
+        <template id="review-student-picker">
+          <details class="review-recipient-picker review-student-picker">
+            <summary>받는 학생·학급 선택</summary>
+            <div class="review-student-fields">
+              <label>학년·반<select name="class"><option value="">학년·반 선택</option></select></label>
+              <label>받는 학생 또는 반 전체<select name="student" disabled><option value="">받는 범위 선택</option></select></label>
+            </div>
+          </details>
+        </template>
         <p id="messages-empty" hidden>이 상태의 메시지가 없습니다.</p>
         <div class="message-pages"><button id="previous-messages" class="secondary">이전</button><span id="message-page">1 / 1</span><button id="next-messages" class="secondary">다음</button></div>
       </div>

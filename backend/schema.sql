@@ -106,6 +106,15 @@ CREATE TABLE IF NOT EXISTS gratitude_teacher_deliveries (
   PRIMARY KEY(message_id,teacher_name)
 ) STRICT;
 CREATE INDEX IF NOT EXISTS gratitude_teacher_inbox_deliveries ON gratitude_teacher_deliveries(teacher_name,message_id);
+CREATE TABLE IF NOT EXISTS gratitude_student_deliveries (
+  message_id TEXT NOT NULL REFERENCES gratitude_messages(id) ON DELETE CASCADE,
+  grade INTEGER NOT NULL, class_no INTEGER NOT NULL, number INTEGER NOT NULL,
+  name TEXT NOT NULL,
+  whole_class INTEGER NOT NULL CHECK(whole_class IN (0,1)),
+  read_at TEXT NOT NULL DEFAULT '',
+  PRIMARY KEY(message_id,grade,class_no,number)
+) STRICT;
+CREATE INDEX IF NOT EXISTS gratitude_student_inbox_deliveries ON gratitude_student_deliveries(grade,class_no,number,message_id);
 CREATE TABLE IF NOT EXISTS special_quiz_results (
   campaign_id INTEGER NOT NULL REFERENCES special_campaigns(id),
   player_id INTEGER NOT NULL REFERENCES players(id) ON DELETE CASCADE,

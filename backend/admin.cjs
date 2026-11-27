@@ -53,16 +53,16 @@ function createAdmin(store,{credentials,now,traffic}) {
       reply(200,store.specialMissions.review(input.status ?? 'pending',input.page ?? 0)); return;
     }
     if (route==='/api/admin/send-message' && method==='POST') {
-      const result=store.specialMissions.deliver(input.id,input.teacherName,input.teacherNames);
+      const result=store.specialMissions.deliver(input.id,input.teacherName,input.teacherNames,input.studentTarget);
       reply(200,result); return;
     }
     if (route==='/api/admin/send-messages' && method==='POST') {
       reply(200,store.specialMissions.deliverBatch(input.messages)); return;
     }
     if (route==='/api/admin/message-recipients' && method==='GET') {
-      const recipients=store.db.prepare(`SELECT 'student' role,name,grade,class_no classNo,number FROM student_roster
+      const recipients=store.db.prepare(`SELECT 'student' role,name,grade,class_no classNo,number,1 onRoster FROM student_roster
         UNION ALL
-        SELECT p.role,p.name,p.grade,p.class_no,p.number FROM players p
+        SELECT p.role,p.name,p.grade,p.class_no,p.number,0 FROM players p
         WHERE p.role='teacher' OR NOT EXISTS (SELECT 1 FROM student_roster r
           WHERE r.grade=p.grade AND r.class_no=p.class_no AND r.number=p.number)
         ORDER BY role,grade,classNo,number,name`).all();
