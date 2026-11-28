@@ -1214,6 +1214,93 @@ test('선생님 관리: PIN 변경·권한·전체 기록 삭제·롤백·이름
   assert.equal(app.store.authenticate(replacement.token)>0,true);
 });
 
+test('교사용 대시보드: 정답률·학급 필터·동시 로그인·수령 중복 방지',async t=>{
+  const {createDashboard}=require('./operator/server.cjs');
+  const {request:send}=require('node:http');
+  const directory=fs.mkdtempSync(path.join(os.tmpdir(),'growgame-operator-test-'));
+  const app=createBackend({directory});
+  const db=app.store.db,origin='https://dashboard.example';
+  const student={grade:1,classNo:1,number:1};
+  const second={grade:1,classNo:2,number:1};
+  app.store.importRoster([{...student,name:'가상 <학생>'},{...second,name:'다른반 학생'},{...student,number:2,name:'미가입학생'}]);
+  const password='7359';
+  const dashboard=createDashboard(db,{origin,credentials:await hashPassword(password),now:()=>Date.UTC(2026,10,30,3)});
+  t.after(async()=>{
+    await new Promise(resolve=>dashboard.close(resolve));
+    db.close();
+    fs.rmSync(directory,{recursive:true,force:true});
+  });
+  await new Promise(resolve=>dashboard.listen(0,'127.0.0.1',resolve));
+  await app.store.login(student,'1935');
+  await app.store.login(second,'1935');
+  await app.store.login({role:'teacher',name:'가상선생님'},'1935');
+  const harvest=db.prepare("INSERT INTO harvests(player_id,crop_id,created_at) VALUES(?,'rice','2026-11-30T03:00:00.000Z')");
+  for (const [id,total] of [[1,15],[2,5],[3,10]]) for (let n=0;n<total;n++) harvest.run(id);
+  db.exec("INSERT INTO quiz_sets(id,subject,title,questions_json) VALUES('operator-fixture','과학','가상', '[]')");
+  const submitted=db.prepare("INSERT INTO quiz_runs(player_id,day,subject,set_id,questions_json,result_json) VALUES(?,?,'과학','operator-fixture',?,?)");
+  for (const [id,day,correct] of [[1,'2026-11-29',3],[1,'2026-11-30',5],[2,'2026-11-30',9],[3,'2026-11-30',10]]) {
+    submitted.run(id,day,JSON.stringify(Array(10).fill({})),JSON.stringify({correctCount:correct}));
+  }
+  db.exec(`INSERT INTO special_campaigns(request_id,kind,title,description,created_at,content_json)
+    VALUES('operator-fixture','patriots','가상','','2026-11-30','{}')`);
+  db.prepare("INSERT INTO special_quiz_results VALUES(1,1,?,0,'2026-11-30')").run(JSON.stringify({
+    correctCount:6,questions:Array(10).fill({}),
+  }));
+  const request=(route,{cookie,body,headers={}}={})=>new Promise((resolve,reject)=>{
+    const payload=body?new URLSearchParams(body).toString():null;
+    const req=send({host:'127.0.0.1',port:dashboard.address().port,path:'/dashboard'+route,
+      method:payload?'POST':'GET',headers:{Host:'dashboard.example',...(cookie?{Cookie:cookie}:{}),
+        ...(payload?{Origin:origin,'Content-Type':'application/x-www-form-urlencoded','Content-Length':Buffer.byteLength(payload)}:{}),...headers}},
+    res=>{
+      const chunks=[];
+      res.on('data',chunk=>chunks.push(chunk));
+      res.on('end',()=>resolve({status:res.statusCode,headers:res.headers,html:Buffer.concat(chunks).toString('utf8')}));
+    });
+    req.on('error',reject);req.end(payload);
+  });
+  const guest=await request('/');
+  assert.match(guest.html,/대시보드 로그인/);
+  assert.doesNotMatch(guest.html,/가상.*학생/);
+  assert.match(guest.headers['content-security-policy'],/connect-src 'none'/);
+  assert.equal(guest.headers['access-control-allow-origin'],undefined);
+  const login=async()=>{
+    const response=await request('/sign-in',{body:{password}});
+    assert.equal(response.status,303);
+    const raw=response.headers['set-cookie'][0];
+    assert.match(raw,/HttpOnly; SameSite=Strict; Secure/);
+    return raw.split(';')[0];
+  };
+  const [first,other]=await Promise.all([login(),login()]);
+  assert.notEqual(first,other);
+  const overall=await request('/',{cookie:first});
+  assert.match(overall.html,/56\.7%/);
+  assert.match(overall.html,/가상 &lt;학생&gt;/);
+  assert.doesNotMatch(overall.html,/가상선생님/);
+  const filtered=await request('/?grade=1&classNo=1&scope=class',{cookie:other});
+  assert.match(filtered.html,/40%/);
+  assert.match(filtered.html,/60%/);
+  assert.match(filtered.html,/반별 순위/);
+  assert.doesNotMatch(filtered.html,/다른반 학생/);
+  assert.equal((await request('/',{cookie:first,headers:{'Sec-Fetch-Mode':'cors'}})).status,403);
+  const teachers=await request('/pickup/search',{cookie:first,body:{query:'가상',role:'teacher'}});
+  assert.match(teachers.html,/가상선생님/);
+  assert.match(teachers.html,/과일 젤리/);
+  assert.doesNotMatch(teachers.html,/가상 &lt;학생&gt;/);
+  assert.equal((await request('/pickup/redeem',{body:{person:'1',key:'student:1:1:1'}})).status,401);
+  assert.equal((await request('/pickup/redeem',{cookie:first,body:{person:'1',key:'student:1:1:1'},
+    headers:{Origin:'https://cropgrow.sangsangbar.com'}})).status,403);
+  const submit={person:'1',key:'student:1:1:1'};
+  const [left,right]=await Promise.all([request('/pickup/redeem',{cookie:first,body:submit}),
+    request('/pickup/redeem',{cookie:other,body:submit})]);
+  assert.equal(left.status,303);
+  assert.equal(right.headers.location,left.headers.location);
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM prize_pickups').get().n,1);
+  assert.equal(db.prepare('SELECT prize FROM prize_pickups').get().prize,'빼빼로');
+  await request('/sign-out',{cookie:first,body:{action:'logout'}});
+  assert.match((await request('/pickup',{cookie:other})).html,/수령 완료 명단/);
+  assert.match((await request('/pickup',{cookie:first})).html,/대시보드 로그인/);
+});
+
 test('관리자 비밀번호 미설정 시 로그인 차단',async t=>{
   const directory=fs.mkdtempSync(path.join(os.tmpdir(),'growgame-admin-disabled-'));
   const app=createBackend({directory});

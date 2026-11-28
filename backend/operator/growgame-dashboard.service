@@ -1,0 +1,23 @@
+[Unit]
+Description=GrowGame ranking and prize pickup dashboard
+After=network.target growgame.service
+
+[Service]
+User=growgame
+Group=growgame
+WorkingDirectory=/opt/growgame-dashboard
+Environment=GROWGAME_DASHBOARD_DB=/var/lib/growgame/growgame.sqlite
+Environment=GROWGAME_DASHBOARD_CREDENTIALS=/etc/growgame-dashboard/credential.json
+Environment=GROWGAME_DASHBOARD_ORIGIN=https://cropgrow-api.sangsangbar.com
+ExecStart=/usr/local/bin/node /opt/growgame-dashboard/server.cjs
+Restart=on-failure
+RestartSec=3s
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/growgame
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
