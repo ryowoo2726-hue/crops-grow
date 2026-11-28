@@ -834,6 +834,9 @@ class _FarmGameState extends State<FarmGame>
             loginStatus = null;
           });
       }
+      if (mounted && record != null) {
+        await showPrizePickupAnnouncement(context, r['profile'] as Map);
+      }
       return;
     }
     final found = records.where(

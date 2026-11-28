@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
+import 'game.dart';
 import 'image_assets.dart';
+import 'storage_stub.dart' if (dart.library.js_interop) 'storage.dart';
 
 const _cream = Color(0xfffff9e9);
 const _ink = Color(0xff284b39);
@@ -11,6 +13,8 @@ const _tile = Color(0xffedf0d7);
 const _gold = Color(0xfffff0cc);
 const _goldBorder = Color(0xffe9d7a6);
 const _white = Color(0xfffffef7);
+const _prizeBarrier = Color(0x8b17281b);
+const _pickupDay = '2026-11-30';
 
 const _prizes = [
   (count: 5, name: '뻥튀기', art: 'puffed-rice', color: Color(0xfffff0c8)),
@@ -39,12 +43,253 @@ class EventPrizeButton extends StatelessWidget {
         ? () => showDialog<void>(
             context: context,
             useRootNavigator: false,
-            barrierColor: const Color(0x8b17281b),
+            barrierColor: _prizeBarrier,
             builder: (_) => const _EventPrizeDialog(),
           )
         : null,
     icon: const _PrizeArt('prize-button', 19, 19),
     label: const Text('상품'),
+  );
+}
+
+Future<void> showPrizePickupAnnouncement(
+  BuildContext context,
+  Map profile, {
+  DateTime? now,
+}) async {
+  if (seoulDay(now) != _pickupDay || profile['role'] == 'teacher') return;
+  final key = 'growgame.prize-pickup.$_pickupDay.${profileKey(profile)}';
+  try {
+    if (readStorage(key) == 'hidden') return;
+  } catch (_) {
+    // Show the announcement even if the browser blocks storage.
+  }
+  final hideToday = await showDialog<bool>(
+    context: context,
+    useRootNavigator: false,
+    barrierColor: _prizeBarrier,
+    barrierDismissible: false,
+    builder: (_) => const _PrizePickupAnnouncement(),
+  );
+  if (hideToday == true) {
+    try {
+      writeStorage(key, 'hidden');
+    } catch (_) {
+      // Dismissing the announcement should still work without storage.
+    }
+  }
+}
+
+class _PrizePickupAnnouncement extends StatelessWidget {
+  const _PrizePickupAnnouncement();
+
+  static const _headline = TextStyle(
+    color: _ink,
+    fontSize: 28,
+    fontWeight: FontWeight.w900,
+    height: 36 / 28,
+    letterSpacing: -.6,
+  );
+
+  @override
+  Widget build(BuildContext context) => Dialog(
+    backgroundColor: Colors.transparent,
+    elevation: 0,
+    insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+    child: Container(
+      width: 350,
+      padding: const EdgeInsets.symmetric(horizontal: 21, vertical: 20),
+      decoration: BoxDecoration(
+        color: _cream,
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x4d14281a),
+            offset: Offset(0, 14),
+            blurRadius: 36,
+          ),
+        ],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Flexible(
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Semantics(
+                    header: true,
+                    label: '오늘 상품 수령',
+                    excludeSemantics: true,
+                    child: Wrap(
+                      spacing: 9,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.fromLTRB(10, 2, 10, 3),
+                          decoration: BoxDecoration(
+                            color: const Color(0xffffe4a6),
+                            borderRadius: BorderRadius.circular(11),
+                          ),
+                          child: Text(
+                            '오늘',
+                            style: _headline.copyWith(
+                              color: const Color(0xff68420b),
+                            ),
+                          ),
+                        ),
+                        const Text('상품 수령', style: _headline),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  const Text(
+                    '점심시간 · 중앙현관',
+                    style: TextStyle(
+                      color: _muted,
+                      fontSize: 16,
+                      height: 1.5,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  for (final (index, prize) in _prizes.indexed) ...[
+                    if (index > 0) const SizedBox(height: 8),
+                    _PickupPrizeRow(
+                      prize.count,
+                      prize.art == 'jelly' ? '과일 젤리' : prize.name,
+                      prize.art,
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 18),
+          Row(
+            children: [
+              Expanded(
+                flex: 176,
+                child: OutlinedButton(
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size(0, 48),
+                    visualDensity: VisualDensity.standard,
+                    padding: const EdgeInsets.symmetric(horizontal: 6),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(13),
+                    ),
+                    side: const BorderSide(color: Color(0xffaabb93)),
+                    backgroundColor: _white,
+                    foregroundColor: _ink,
+                    textStyle: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  onPressed: () => Navigator.pop(context, true),
+                  child: const Text('오늘 하루 보지 않기', textAlign: TextAlign.center),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                flex: 122,
+                child: FilledButton(
+                  style: FilledButton.styleFrom(
+                    minimumSize: const Size(0, 48),
+                    visualDensity: VisualDensity.standard,
+                    padding: const EdgeInsets.symmetric(horizontal: 6),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(13),
+                    ),
+                    backgroundColor: _green,
+                    foregroundColor: _white,
+                    textStyle: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('닫기'),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+class _PickupPrizeRow extends StatelessWidget {
+  const _PickupPrizeRow(this.count, this.name, this.art);
+
+  final int count;
+  final String name;
+  final String art;
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+    label: '수확 작물 $count개 · $name',
+    excludeSemantics: true,
+    child: Container(
+      constraints: const BoxConstraints(minHeight: 55),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: _white,
+        border: Border.all(color: const Color(0xffd6dfbd)),
+        borderRadius: BorderRadius.circular(15),
+      ),
+      child: Row(
+        children: [
+          Container(
+            constraints: const BoxConstraints(minWidth: 86, minHeight: 36),
+            padding: const EdgeInsets.only(left: 10, right: 4),
+            decoration: BoxDecoration(
+              color: const Color(0xffebf0d8),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const _PrizeArt('announcement-crops', 18, 18),
+                const SizedBox(width: 6),
+                Text(
+                  '×$count',
+                  style: const TextStyle(
+                    color: _ink,
+                    fontSize: 20,
+                    height: 1.4,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          const SizedBox(
+            width: 1,
+            height: 23,
+            child: ColoredBox(color: Color(0xffd6dfbd)),
+          ),
+          const SizedBox(width: 12),
+          _PrizeArt('announcement-$art', 22, 22),
+          const SizedBox(width: 8),
+          Flexible(
+            child: Text(
+              name,
+              style: const TextStyle(
+                color: _ink,
+                fontSize: 17,
+                height: 25 / 17,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ],
+      ),
+    ),
   );
 }
 
