@@ -22,6 +22,8 @@ Flutter Web 프론트와 Oracle 무료 VM에서 실행하는 Node.js + SQLite �
 
 ## 실행과 배포
 
+11월 30일(월) 상품 수령 공지를 운영에 배포했습니다. 한국 시간 11월 30일 하루 동안 학생 로그인 직후 표시됩니다. **오늘 하루 보지 않기**는 같은 브라우저에서 해당 학생에게 적용됩니다. 배포와 검증 결과는 [인수인계](docs/PROJECT_HANDOFF.md)를 확인하세요.
+
 Oracle 운영은 백엔드를 `127.0.0.1:8787`에서 실행하고 Caddy가 HTTPS API를 제공합니다. Cloudflare Pages는 게임·관리자 화면·이미지·폰트를 제공하며 데이터 요청을 중계하지 않습니다. Pages production/preview `API_BASE_URL`도 `https://cropgrow-api.sangsangbar.com`으로 설정했습니다. 직접 연결은 기존 서버 인증·SQLite 저장 정책을 유지합니다. [백엔드 실행·관리](backend/README.md)를 확인하세요.
 
 아래 Windows 실행 방법은 기존 노트북 운영·로컬 검증용입니다.
