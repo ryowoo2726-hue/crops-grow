@@ -36,6 +36,8 @@ SSH 접속 후 `sudo systemctl status growgame`, 재시작은 `sudo systemctl re
 
 [대시보드](https://cropgrow-api.sangsangbar.com/dashboard/)를 열고 대시보드 비밀번호를 입력합니다. **랭킹·통계**에서 학생·반별 수확과 정답률을 보고, **상품 수령**에서 이름이나 학년·반·번호를 검색한 뒤 수령을 확정합니다. 모바일 여러 대에서 동시에 사용할 수 있습니다. 로그인은 기기마다 최대 4시간 유지합니다.
 
+**퀴즈 보고서**에서는 과학·영어·역사 정답률, 선택한 과목의 세트별 정답률, 특별 퀴즈 회차별 정답률을 비교합니다. 학년·반 필터는 모든 그래프에 적용됩니다. 정답 수와 제출 문항 수, 제출 인원을 함께 표시합니다. 브라우저의 인쇄 메뉴에서 현재 보고서를 인쇄하거나 PDF로 저장할 수 있습니다.
+
 Oracle의 `growgame-dashboard.service`가 운영 SQLite에서 통계를 읽고 수령 기록을 저장합니다. 상태는 `sudo systemctl status growgame-dashboard`로 확인합니다. 기존 운영 DB 백업에 수령 기록도 포함됩니다. 운영 배포와 검증 결과는 [프로젝트 인수인계](../docs/PROJECT_HANDOFF.md)를 참고하세요.
 
 ## 선생님 비밀번호 변경·기록 삭제 (2026-11-17 추가)

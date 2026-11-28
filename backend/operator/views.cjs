@@ -2,11 +2,15 @@ const {prizes,classLabel,participantDetails,participantLabel} = require('./recor
 
 const root = '/dashboard/';
 const pickup = '/dashboard/pickup';
+const report = '/dashboard/report';
+const reportSubjects = ['과학','영어','역사'];
 const number = new Intl.NumberFormat('ko-KR');
 const percent = new Intl.NumberFormat('ko-KR',{maximumFractionDigits:1});
 const time = new Intl.DateTimeFormat('ko-KR',{
   timeZone:'Asia/Seoul',month:'numeric',day:'numeric',hour:'numeric',minute:'2-digit',hour12:false,
 });
+const reportDate = new Intl.DateTimeFormat('ko-KR',{timeZone:'Asia/Seoul',dateStyle:'medium'});
+const reportTime = new Intl.DateTimeFormat('ko-KR',{timeZone:'Asia/Seoul',dateStyle:'medium',timeStyle:'short'});
 const escape = value => String(value ?? '').replace(/[&<>"']/g,char =>
   ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[char]);
 const integer = value => number.format(value);
@@ -23,13 +27,14 @@ function layout(title,active,content) {
   <title>${escape(title)} · 작물키우기</title>
   <link rel="stylesheet" href="/dashboard/dashboard.css">
 </head>
-<body>
+<body class="${active ?? ''}">
   <a class="skip" href="#main">본문으로</a>
   <header class="site-header">
     <div class="header-inner">
       <a class="brand" href="${root}"><span class="brand-mark" aria-hidden="true"></span>작물키우기</a>
       ${active ? `<nav aria-label="대시보드 메뉴">
         <a href="${root}" ${active==='ranking'?'aria-current="page"':''}>랭킹·통계</a>
+        <a href="${report}" ${active==='report'?'aria-current="page"':''}>퀴즈 보고서</a>
         <a href="${pickup}" ${active==='pickup'?'aria-current="page"':''}>상품 수령</a>
       </nav>
       <form method="post" action="/dashboard/sign-out"><button class="plain" type="submit">로그아웃</button></form>` : ''}
@@ -76,7 +81,7 @@ const kpi = (name,value,detail = '') =>
 function chartLine(label,value,max,summary,detail = '',color = '') {
   return `<li class="chart-line ${color}">
     <div><strong>${label}</strong><span>${summary}</span></div>
-    <meter min="0" max="${max}" value="${value}" aria-hidden="true"></meter>
+    ${value===null?'':`<meter min="0" max="${max}" value="${value}" aria-hidden="true"></meter>`}
     ${detail?`<small>${detail}</small>`:''}
   </li>`;
 }
@@ -159,7 +164,8 @@ function rankingPage(students,params) {
         ${top.length?`<ul>${top.map(row=>chartLine(escape(row.label),row.harvestCount,maxHarvest,integer(row.harvestCount)+'개')).join('')}</ul>`:'<p class="empty">이 범위에 참여한 학생이 없습니다.</p>'}
       </section>
       <section class="panel chart" aria-labelledby="accuracy-chart">
-        <div class="section-head"><h2 id="accuracy-chart">퀴즈 정답률</h2><span>제출 문항 기준</span></div>
+        <div class="section-head"><h2 id="accuracy-chart">퀴즈 정답률</h2>
+          <a class="button secondary" href="${pathWith(report,{grade,classNo})}">퀴즈 보고서</a></div>
         <ul>${chartScores}</ul>
         <p class="chart-note">일일 퀴즈는 기기에 채점되어 저장된 결과를 집계합니다. 특별 퀴즈는 서버 채점 결과를 집계합니다.</p>
       </section>
@@ -177,6 +183,60 @@ function rankingPage(students,params) {
         <th scope="col" ${metric==='special'?'aria-sort="descending"':''}>특별 퀴즈</th>
         </tr></thead><tbody>${rowsHtml}</tbody></table></div>`:'<p class="empty">조건에 맞는 순위가 없습니다.</p>'}
       ${pageNav(root,Math.floor(page),pages,filters)}
+    </section>`);
+}
+
+function reportChart(rows,color = '') {
+  return `<ul class="report-chart">${rows.map(({label,correct,total,details}) => chartLine(
+    escape(label),total?correct/total*100:null,100,accuracy(correct,total),
+    [total ? `정답 ${score(correct,total)}` : '제출 없음',details].filter(Boolean).join(' · '),color,
+  )).join('')}</ul>`;
+}
+
+function quizReportPage(records,params) {
+  const grade = /^[1-3]$/.test(params.get('grade') ?? '') ? params.get('grade') : '';
+  const classNo = /^[1-9]\d?$/.test(params.get('classNo') ?? '') ? params.get('classNo') : '';
+  const subject = reportSubjects.includes(params.get('subject')) ? params.get('subject') : reportSubjects[0];
+  const {classNumbers,subjects,sets,rounds,generatedAt} = records.quizReport(Number(grade),Number(classNo),subject);
+  if (classNo && !classNumbers.includes(Number(classNo))) classNumbers.push(Number(classNo));
+  const scope = `${grade?grade+'학년':'전체 학년'} · ${classNo?classNo+'반':'전체 반'}`;
+  const dailyDetails = ({students,submissions}) => `${integer(students)}명 · ${integer(submissions)}회 제출`;
+  const subjectRows = reportSubjects.map(label => {
+    const row = subjects.find(item=>item.subject===label);
+    return row ? {...row,label,details:dailyDetails(row)} : {label,correct:0,total:0};
+  });
+  return layout('퀴즈 보고서','report',`
+    <div class="heading"><h1>퀴즈 보고서</h1><span>${scope} · 집계 ${reportTime.format(generatedAt)} <span class="report-timezone">(한국 시간)</span></span></div>
+    <form class="filters panel" method="get" action="${report}">
+      <input type="hidden" name="subject" value="${subject}">
+      <label>학년<select name="grade">${options([['','전체 학년'],[1,'1학년'],[2,'2학년'],[3,'3학년']],grade)}</select></label>
+      <label>반<select name="classNo">${options([['','전체 반'],...classNumbers.map(value=>[value,value+'반'])],classNo)}</select></label>
+      <button type="submit">필터 적용</button>
+      ${grade||classNo?`<a class="button secondary" href="${pathWith(report,{subject})}">초기화</a>`:''}
+    </form>
+    <p class="report-method">학생이 제출한 퀴즈를 집계합니다. 정답률은 정답 수를 제출 문항 수로 나눈 값입니다.
+      일일 퀴즈는 SQLite에 저장된 점수 요약, 특별 퀴즈는 서버 채점 결과를 사용합니다.</p>
+    <div class="charts">
+      <section class="panel chart" aria-labelledby="subject-chart">
+        <div class="section-head"><h2 id="subject-chart">과목별 정답률</h2><span>일일 퀴즈</span></div>
+        ${reportChart(subjectRows)}
+      </section>
+      <section class="panel chart" aria-labelledby="round-chart">
+        <div class="section-head"><h2 id="round-chart">특별 미션별 정답률</h2><span>퀴즈 회차별</span></div>
+        ${rounds.length?reportChart(rounds.map(round=>({...round,
+          label:`${round.title} · ${round.id}회차`,
+          details:`${round.total?`${integer(round.students)}명 제출 · `:''}개설 ${reportDate.format(new Date(round.startedAt))}`,
+        })),'amber'):'<p class="empty">개설된 특별 퀴즈가 없습니다.</p>'}
+      </section>
+    </div>
+    <section class="panel chart" aria-labelledby="set-chart">
+      <div class="section-head"><h2 id="set-chart">${subject} 세트별 정답률</h2><span>정답률 낮은 순</span></div>
+      <nav class="switch report-switch" aria-label="세트별 통계 과목">
+        ${reportSubjects.map(value=>`<a href="${pathWith(report,{grade,classNo,subject:value})}#set-chart"
+          ${value===subject?'aria-current="page"':''}>${value}</a>`).join('')}
+      </nav>
+      ${sets.length?reportChart(sets.map(row=>({...row,label:row.title,details:dailyDetails(row)}))):
+        '<p class="empty">선택한 범위에 이 과목의 제출 기록이 없습니다.</p>'}
     </section>`);
 }
 
@@ -239,4 +299,4 @@ function pickupPage(records,{query='',role='',page=1,person,receipt,error} = {})
     </section>`);
 }
 
-module.exports = {loginPage,rankingPage,pickupPage};
+module.exports = {loginPage,rankingPage,pickupPage,quizReportPage};

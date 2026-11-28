@@ -4,7 +4,7 @@ const {promisify} = require('node:util');
 const {existsSync,readFileSync} = require('node:fs');
 const {DatabaseSync} = require('node:sqlite');
 const {createRecords} = require('./records.cjs');
-const {loginPage,rankingPage,pickupPage} = require('./views.cjs');
+const {loginPage,rankingPage,pickupPage,quizReportPage} = require('./views.cjs');
 
 const derive = promisify(scrypt);
 const hashToken = token => createHash('sha256').update(token).digest('hex');
@@ -13,6 +13,7 @@ const lifespan = 4 * 60 * 60 * 1000;
 const lockout = 15 * 60 * 1000;
 const cookie = 'growgame_operator';
 const pickupPath = '/dashboard/pickup';
+const reportPath = '/dashboard/report';
 const root = '/dashboard/';
 const positiveId = value => /^\d{1,15}$/.test(value ?? '') ? Number(value) : 0;
 
@@ -71,7 +72,7 @@ function createDashboard(db, {origin, credentials, now = Date.now}) {
         return reply(403,'화면 주소를 직접 열어 주세요.');
       }
       if (req.method === 'GET' && url.pathname === '/dashboard') return redirect(root);
-      const relevant = [root,pickupPath,'/dashboard/sign-in','/dashboard/sign-out','/dashboard/pickup/search','/dashboard/pickup/redeem'];
+      const relevant = [root,pickupPath,reportPath,'/dashboard/sign-in','/dashboard/sign-out','/dashboard/pickup/search','/dashboard/pickup/redeem'];
       if (!relevant.includes(url.pathname)) return reply(404,'요청한 화면을 찾을 수 없습니다.');
 
       let form;
@@ -81,7 +82,8 @@ function createDashboard(db, {origin, credentials, now = Date.now}) {
         }
         form = await readForm(req);
       }
-      const next = (form?.get('next') === pickupPath || url.pathname === pickupPath) ? pickupPath : root;
+      const requestedPage = form?.get('next') || url.pathname;
+      const next = [pickupPath,reportPath].includes(requestedPage) ? requestedPage : root;
       const session = sessionCookie(req);
       const sessionKey = /^[A-Za-z0-9_-]{43}$/.test(session) ? hashToken(session) : '';
       const signedIn = sessions.get(sessionKey) > now();
@@ -108,6 +110,7 @@ function createDashboard(db, {origin, credentials, now = Date.now}) {
         return redirect(root,{'Set-Cookie':`${cookie}=; ${cookieOptions}; Max-Age=0`});
       }
       if (req.method === 'GET' && url.pathname === root) return reply(200,rankingPage(records.students(),url.searchParams));
+      if (req.method === 'GET' && url.pathname === reportPath) return reply(200,quizReportPage(records,url.searchParams));
       if (req.method === 'GET' && url.pathname === pickupPath) {
         const person = records.person(positiveId(url.searchParams.get('person')));
         const receipt = records.receipt(positiveId(url.searchParams.get('receipt')));

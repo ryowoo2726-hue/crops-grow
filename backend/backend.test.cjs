@@ -1282,6 +1282,44 @@ test('교사용 대시보드: 정답률·학급 필터·동시 로그인·수령
   assert.match(filtered.html,/반별 순위/);
   assert.doesNotMatch(filtered.html,/다른반 학생/);
   assert.equal((await request('/',{cookie:first,headers:{'Sec-Fetch-Mode':'cors'}})).status,403);
+
+  db.exec(`INSERT INTO quiz_sets(id,subject,title,questions_json,active) VALUES
+    ('operator-english','영어','영어 어휘','[]',1),('operator-history','역사','역사 세트','[]',0);
+    INSERT INTO special_campaigns(request_id,kind,title,description,created_at) VALUES
+    ('operator-round-2','patriots','가상','','2026-11-30'),
+    ('operator-round-survey','survey','가상 설문','','2026-11-30'),
+    ('operator-round-empty','farmers','미제출 특별 퀴즈','','2026-11-30');`);
+  const extra = db.prepare(`INSERT INTO quiz_runs(player_id,day,subject,set_id,questions_json,result_json)
+    SELECT ?,'2026-11-30',subject,id,?,? FROM quiz_sets WHERE id=?`);
+  const ten = JSON.stringify(Array(10).fill({}));
+  extra.run(2,ten,JSON.stringify({correctCount:10}),'operator-english');
+  extra.run(1,ten,null,'operator-english');
+  extra.run(1,ten,JSON.stringify({correctCount:0}),'operator-history');
+  const special = db.prepare("INSERT INTO special_quiz_results VALUES(?,?,?,0,'2026-11-30')");
+  special.run(2,2,JSON.stringify({correctCount:1,answers:Array(5).fill({})}));
+  special.run(2,3,JSON.stringify({correctCount:5,answers:Array(5).fill({})}));
+
+  const reportGuest = await request('/report');
+  assert.match(reportGuest.html,/name="next" value="\/dashboard\/report"/);
+  assert.doesNotMatch(reportGuest.html,/과목별 정답률/);
+  assert.equal((await request('/sign-in',{body:{password,next:'/dashboard/report'}})).headers.location,'/dashboard/report');
+  const report = await request('/report',{cookie:first});
+  assert.equal(report.status,200);
+  assert.equal(report.headers['cache-control'],'no-store');
+  assert.match(report.html,/과학<\/strong><span>56\.7%[\s\S]*?정답 17 \/ 30문항 · 2명 · 3회 제출/);
+  assert.match(report.html,/영어<\/strong><span>100%[\s\S]*?정답 10 \/ 10문항 · 1명 · 1회 제출/);
+  assert.match(report.html,/역사<\/strong><span>0%/);
+  assert.match(report.html,/가상 · 1회차<\/strong><span>60%/);
+  assert.match(report.html,/가상 · 2회차<\/strong><span>20%/);
+  assert.match(report.html,/미제출 특별 퀴즈 · 4회차<\/strong><span>—/);
+  assert.doesNotMatch(report.html,/가상 설문|다른반 학생|가상선생님/);
+  const reportFiltered = await request(`/report?grade=1&classNo=1&subject=${encodeURIComponent('역사')}`,{cookie:other});
+  assert.match(reportFiltered.html,/과학<\/strong><span>40%/);
+  assert.match(reportFiltered.html,/영어<\/strong><span>—/);
+  assert.match(reportFiltered.html,/가상 · 2회차<\/strong><span>—/);
+  assert.match(reportFiltered.html,/역사 세트<\/strong><span>0%/);
+  assert.doesNotMatch(reportFiltered.html,/영어 어휘/);
+
   const teachers=await request('/pickup/search',{cookie:first,body:{query:'가상',role:'teacher'}});
   assert.match(teachers.html,/가상선생님/);
   assert.match(teachers.html,/과일 젤리/);

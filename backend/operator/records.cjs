@@ -31,21 +31,24 @@ function createRecords(db, now) {
     ) STRICT;
   `);
 
-  const students = db.prepare(`
-    WITH submitted AS (
-      SELECT player_id, json_extract(result_json,'$.correctCount') correct,
+  const dailySubmissions = `
+      SELECT player_id,subject,set_id,json_extract(result_json,'$.correctCount') correct,
         json_array_length(questions_json) total
       FROM quiz_runs WHERE result_json IS NOT NULL
-    ), daily AS (
-      SELECT player_id,SUM(correct) correct,SUM(total) total FROM submitted
-      WHERE total>0 AND correct BETWEEN 0 AND total GROUP BY player_id
-    ), graded AS (
-      SELECT player_id,json_extract(result_json,'$.correctCount') correct,
+  `;
+  const specialSubmissions = `
+      SELECT player_id,campaign_id,json_extract(result_json,'$.correctCount') correct,
         COALESCE(json_array_length(result_json,'$.questions'),json_array_length(result_json,'$.answers')) total
       FROM special_quiz_results
-    ), special AS (
+  `;
+  const validScore = 'total>0 AND correct BETWEEN 0 AND total';
+  const students = db.prepare(`
+    WITH submitted AS (${dailySubmissions}), daily AS (
+      SELECT player_id,SUM(correct) correct,SUM(total) total FROM submitted
+      WHERE ${validScore} GROUP BY player_id
+    ), graded AS (${specialSubmissions}), special AS (
       SELECT player_id,SUM(correct) correct,SUM(total) total FROM graded
-      WHERE total>0 AND correct BETWEEN 0 AND total GROUP BY player_id
+      WHERE ${validScore} GROUP BY player_id
     )
     SELECT p.grade,p.class_no classNo,p.number,COALESCE(r.name,p.name) name,
       (SELECT COUNT(*) FROM harvests h WHERE h.player_id=p.id) harvestCount,
@@ -55,6 +58,51 @@ function createRecords(db, now) {
     LEFT JOIN daily d ON d.player_id=p.id LEFT JOIN special s ON s.player_id=p.id
     WHERE p.role='student' ORDER BY p.grade,p.class_no,p.number
   `);
+
+  const reportClasses = db.prepare(`SELECT DISTINCT class_no classNo FROM players
+    WHERE role='student' AND ($grade=0 OR grade=$grade) ORDER BY class_no`);
+  const scopedStudents = `SELECT id FROM players WHERE role='student'
+    AND ($grade=0 OR grade=$grade) AND ($classNo=0 OR class_no=$classNo)`;
+  const dailyReport = `WITH submissions AS (${dailySubmissions}),
+    scoped AS (${scopedStudents})
+    SELECT r.subject,COUNT(*) submissions,COUNT(DISTINCT r.player_id) students,
+      SUM(r.correct) correct,SUM(r.total) total`;
+  const subjects = db.prepare(`${dailyReport}
+    FROM submissions r JOIN scoped p ON p.id=r.player_id
+    WHERE ${validScore} GROUP BY r.subject`);
+  const sets = db.prepare(`${dailyReport},s.title
+    FROM submissions r JOIN scoped p ON p.id=r.player_id JOIN quiz_sets s ON s.id=r.set_id
+    WHERE r.subject=$subject AND ${validScore}
+    GROUP BY s.id ORDER BY SUM(r.correct)*1.0/SUM(r.total),s.id`);
+  const rounds = db.prepare(`WITH submissions AS (${specialSubmissions}),
+    scoped AS (${scopedStudents}), totals AS (
+      SELECT campaign_id,COUNT(*) students,SUM(correct) correct,SUM(total) total
+      FROM submissions r JOIN scoped p ON p.id=r.player_id
+      WHERE ${validScore} GROUP BY campaign_id
+    )
+    SELECT c.id,c.title,c.created_at startedAt,COALESCE(t.students,0) students,
+      COALESCE(t.correct,0) correct,COALESCE(t.total,0) total
+    FROM special_campaigns c LEFT JOIN totals t ON t.campaign_id=c.id
+    WHERE c.kind IN ('patriots','farmers','student-independence') ORDER BY c.id DESC`);
+
+  function quizReport(grade,classNo,subject) {
+    const scope = {$grade:grade,$classNo:classNo};
+    db.exec('BEGIN');
+    try {
+      const result = {
+        classNumbers: reportClasses.all({$grade:grade}).map(row=>row.classNo),
+        subjects: subjects.all(scope),
+        sets: sets.all({...scope,$subject:subject}),
+        rounds: rounds.all(scope),
+        generatedAt: now(),
+      };
+      db.exec('COMMIT');
+      return result;
+    } catch (error) {
+      db.exec('ROLLBACK');
+      throw error;
+    }
+  }
 
   const keyOf = person => person.role === 'teacher'
     ? `teacher:${person.name}`
@@ -133,6 +181,7 @@ function createRecords(db, now) {
 
   return {
     students: () => students.all(),
+    quizReport,
     search,
     person: id => {
       const person = personById.get(id);
