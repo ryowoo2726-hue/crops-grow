@@ -32,6 +32,12 @@ Oracle 보안 목록과 OS 방화벽에서 웹용 80·443을 허용했으며 878
 
 SSH 접속 후 `sudo systemctl status growgame`, 재시작은 `sudo systemctl restart growgame`, 로그는 `sudo journalctl -u growgame -n 50 --no-pager`를 사용합니다. 즉시 백업은 `sudo systemctl start growgame-backup.service`, 예약 확인은 `sudo systemctl list-timers growgame-backup.timer`입니다. Oracle 내부 임시 DB의 200명 동시 신규 등록 3회는 실패 없이 통과했으며 학교 인터넷·Wi-Fi를 포함한 검증은 별도로 필요합니다. 아래 노트북 실행·Tunnel 내용은 이전 운영 방식의 이력입니다.
 
+## 교사용 랭킹·상품 수령 대시보드
+
+[대시보드](https://cropgrow-api.sangsangbar.com/dashboard/)를 열고 대시보드 비밀번호를 입력합니다. **랭킹·통계**에서 학생·반별 수확과 정답률을 보고, **상품 수령**에서 이름이나 학년·반·번호를 검색한 뒤 수령을 확정합니다. 모바일 여러 대에서 동시에 사용할 수 있습니다. 로그인은 기기마다 최대 4시간 유지합니다.
+
+Oracle의 `growgame-dashboard.service`가 운영 SQLite에서 통계를 읽고 수령 기록을 저장합니다. 상태는 `sudo systemctl status growgame-dashboard`로 확인합니다. 기존 운영 DB 백업에 수령 기록도 포함됩니다. 운영 배포와 검증 결과는 [프로젝트 인수인계](../docs/PROJECT_HANDOFF.md)를 참고하세요.
+
 ## 선생님 비밀번호 변경·기록 삭제 (2026-11-17 추가)
 
 관리자 **선생님 기록**의 **변경**에서 새 숫자 4자리 비밀번호를 지정합니다. 기존 로그인을 해제하고 재배·수확 등 게임 기록은 유지합니다. 비밀번호 원문은 조회하지 않습니다. **삭제**는 성함과 삭제 범위를 확인한 뒤 계정·세션·재배·수확·퀴즈·보낸 감사 편지를 삭제합니다. 취소할 수 있고, 확정한 삭제는 되돌릴 수 없습니다. 다른 사람이 보낸 감사 편지는 발신자의 기록으로 보관하며 같은 성함 재참여 시 기존 수신 규칙을 따릅니다.
